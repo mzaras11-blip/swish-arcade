@@ -246,3 +246,86 @@ playing build 2. Web core md5 3746bfe847a8d75f6d657277af3f52d4.
   zero new emoji); no JS functions added or removed (CSS + attributes
   only in the web core). Both plists parse; Info.plist CFBundleVersion
   3 → 4, short version stays 1.0.
+
+## Build 5 (v1.0, CFBundleVersion 5) — Rush becomes a game type in Online/Friends
+
+Michael's order (2026-11-15): build Rush vs friends first, then submit
+ARCADE for App Store review. His refinement: Rush is a **selectable
+game type inside the existing Online/Friends setup flows** — not a
+separate door off the Rush menu. Solo Rush vs CPU is untouched.
+
+- **Where the Rush option now lives** (the three entry points):
+  1. **Friends tab — room creation.** A game-type segmented control
+     (Split Screen / Rush race) sits above "Create a room". Picking
+     Rush race relabels the button "Create a Rush race room"; the
+     room code flow is unchanged. A guest joining ANY room plays
+     whatever type the host picked — the type travels with the race
+     start event, so no join-side choice is needed.
+  2. **Home — matchmaking.** A second button, "Find a Rush race",
+     under "Find a Split Screen match". Matchmaking tickets now
+     carry a game type (below), so racers only ever pair with racers.
+  3. **In-room Rematch.** After a race, the existing Rematch button
+     deals a fresh race in the same room (new puzzle, new seed). The
+     game-over "New Match" button also re-queues the same type.
+- **The race itself** (web core, new "Rush PvP" block next to the
+  Rush section): each racer plays their **own board**. Fairness comes
+  from the room: the host generates one puzzle (sent in the clear,
+  like Split Screen's start) plus a random seed and a start
+  timestamp (now + 5 s). Both phones draw every tile — opening rack
+  and all refills — from the identical seeded stream (mulberry32
+  over the seed, drawing from the same weighted LETTER_BAG), so both
+  racers are offered the exact same tile sequence. The never-dead
+  guarantee is stream-safe: it hands out the first letter the board
+  still needs (board order — deterministic on both phones) and
+  consumes no stream draw. **One clock**: both phones measure the
+  same 180 seconds from the shared startAt; placements are refused
+  during the countdown; the forfeit-confirm dialog does not pause a
+  PvP race (the other phone's clock is running too).
+- **Score sync + finish**: `{t:"rushScore"}` events over the room
+  stream carry score/combo/letters/words (sent on change, 500 ms
+  cadence check) and mirror onto the opponent side of the VS bars —
+  the rival panel shows the opponent's **real username + RIVAL
+  avatar**, the live badge reads "RUSH RACE", and the results table
+  header names them too (restored to "CPU" on exit). Each finisher
+  sends a final report; the race is decided when both finals are in,
+  or after a 3 s grace wait with the last known score. The peer's
+  existing "over" event doubles as a final ack. Winner / loser /
+  **draw** titles name the opponent. **Mid-race leave or forfeit =
+  win for the player who stayed**, whatever the scoreboard says.
+  The ad-revive offer is suppressed in races.
+- **Native (SWISHApp.swift)**: only matchmaking changed. The
+  matchmake action now passes a `gameType` ("split" default); the
+  seeker only claims tickets of the same type, and its own ticket
+  records the type. Tickets written by older builds (and by the live
+  S.W.I.S.H app, which shares this Firebase project) have no
+  gameType and count as "split" — backward compatible, no Firestore
+  rules change needed. Room events needed no native change: event
+  bodies are relayed opaquely, so the new rushStart / rushScore /
+  rushForfeit events ride the existing plumbing and the already
+  deployed onRoomEventCreated function.
+- **Unchanged, by design**: turn-based online matches, Split Screen
+  live games, Daily, solo modes, and solo Rush vs CPU (same code
+  paths, guarded by the rushPvp flag). The CPU thinking pause is
+  untouched everywhere.
+- **Verification**: node --check OK on both script blocks;
+  tools/validate.py 12/12 (exit 0); deadrack-sim ALL CHECKS PASSED;
+  rush-sim 48 checks, 0 failed (solo Rush untouched); **new
+  tools/rush-pvp-sim.js: 42 checks, 0 failed** — shared-seed stream
+  determinism (identical 200-tile sequence, ids 1..n), identical
+  opening racks + lockstep refills on two clients, guarantee
+  determinism with zero stream consumption, countdown placement
+  refusal then GO, score-sync payload/dedupe/final rules, finish
+  exchange (win, draw, grace-timeout decision, over-ack), and the
+  leave/forfeit win. Inventory parity vs build 4: element IDs
+  222 → 224 (additive only: #mmRushBtn, #statCpuHead); emoji
+  multiset identical (same hash — zero new emoji); JS functions
+  266 → 283, all additions, none removed. Web core now 636,709 B,
+  md5 4467a6e0…. Info.plist CFBundleVersion 4 → 5, short version
+  stays 1.0.
+- **Honest limit**: a true two-device live race cannot be tested
+  from here — the protocol and rules are simulated headlessly, the
+  transport is the same room stream Split Screen already ships on,
+  but the first real race is Michael playing build 5 with a friend
+  on two phones. That play is the gate.
+- **Next**: App Store submission of this build follows (Michael's
+  order) — the store description may now claim Rush vs friends.

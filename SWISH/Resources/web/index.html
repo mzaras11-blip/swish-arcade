@@ -1392,8 +1392,9 @@
 
         <div class="start-card" id="splitCard">
           <h2>&#128250; Split Screen — Online Matchmaking</h2>
-          <p style="margin:6px 0 10px">A separate live mode. Get matched with another player online and play a <b>Split Screen</b> game — same board, same time, watching each other's moves and letters as they happen. Open to anyone online, not just friends.</p>
+          <p style="margin:6px 0 10px">A separate live mode. Get matched with another player online and play a <b>Split Screen</b> game — same board, same time, watching each other's moves and letters as they happen. Open to anyone online, not just friends. Or race instead: <b>Rush race</b> gives you each your own board with the same puzzle and the same tiles, three minutes on one clock, highest score wins.</p>
           <button type="button" class="big-action" id="mmFindBtn" style="background:var(--menu-grad);color:#fff;width:100%">Find a Split Screen match</button>
+          <button type="button" class="big-action" id="mmRushBtn" style="background:var(--menu-grad);color:#fff;width:100%;margin-top:8px">Find a Rush race</button>
           <p class="tab-sub" id="mmStatus" style="margin-top:8px"></p>
         </div>
         <div class="start-card" id="diffCard">
@@ -1701,7 +1702,11 @@
 
         <div class="social-card" id="liveCard">
           <h3>&#128250; Split Screen — play live with a friend</h3>
-          <p>An interactive way to play with friends: same board, same time. You watch each other's moves and letters live as they happen.</p>
+          <p>An interactive way to play with friends: same board, same time. You watch each other's moves and letters live as they happen. Prefer a race? Choose <b>Rush race</b> as the game type: you each play your own board — same puzzle, same tiles — against one 3-minute clock.</p>
+          <div class="diff-row" role="group" aria-label="Game type" style="margin:10px 0">
+            <button type="button" class="diff-btn live-type-btn" data-ltype="split" aria-pressed="true">Split Screen<small>same board, live</small></button>
+            <button type="button" class="diff-btn live-type-btn" data-ltype="rush" aria-pressed="false">Rush race<small>3-min race, own boards</small></button>
+          </div>
           <button type="button" class="big-action" id="liveCreateBtn" style="background:var(--menu-grad);color:#fff">Create a Split Screen room</button>
           <p class="tab-sub" id="liveCodeLine" hidden>Your room code: <b id="liveCodeText"></b> — send it to your friend, then wait here. The game starts when they join.</p>
           <div class="add-row" style="margin-top:8px">
@@ -1823,7 +1828,7 @@
         <p class="go-rewards" id="goRewards"></p>
         <table class="stat-table">
           <thead>
-            <tr><th scope="col"></th><th scope="col">You</th><th scope="col">CPU</th></tr>
+            <tr><th scope="col"></th><th scope="col">You</th><th scope="col" id="statCpuHead">CPU</th></tr>
           </thead>
           <tbody>
             <tr><th scope="row">Words completed</th><td id="statWordsYou">0</td><td id="statWordsCpu">0</td></tr>
@@ -2913,6 +2918,7 @@ if (G.live) {
         if (window.SwishLive) SwishLive.gameEnded();
         G.aiBusy = false;
         G.winner = G.scores[0] > G.scores[1] ? 0 : (G.scores[1] > G.scores[0] ? 1 : null);
+        if (G.rushPvp && G.oppLeft) G.winner = 0; // PvP race: a mid-race leave/forfeit is a win for the player who stayed
         if (G.winner === 0) SFX.win(); else if (G.winner === 1) SFX.lose();
         recordGameFinished();
         renderAll();
@@ -3080,6 +3086,14 @@ if (G.live) {
       function rushEnsurePlayable(rack) {
         const needs = openLetterNeeds();
         if (needs.distinct.size > 0 && !rack.some((t) => needs.distinct.has(t.letter))) {
+          if (G && G.rushPvp) {
+            // PvP race: the shared tile stream must stay in lockstep
+            // on both phones, so the guarantee letter is the first
+            // letter the board still needs (board order) —
+            // deterministic, and it consumes nothing from the stream.
+            rack[0] = { id: G.rushPvp.stream.nextId(), letter: needs.list[0], used: false };
+            return;
+          }
           rack[0] = { id: ++drawTiles.seq, letter: pick(needs.list), used: false };
         }
       }
@@ -3088,12 +3102,20 @@ if (G.live) {
          it lands. drawTiles already carries the endgame dead-rack
          guarantee; rushEnsurePlayable extends it to the whole match. */
       function rushRefillSlot(rack, idx) {
+        if (G && G.rushPvp) {
+          // PvP race: refills come from the shared seeded stream, so
+          // both racers are offered the identical tile sequence.
+          rack[idx] = G.rushPvp.stream.drawTile();
+          rushEnsurePlayable(rack);
+          return;
+        }
         rack[idx] = drawTiles(1)[0];
         rushEnsurePlayable(rack);
       }
 
       function rushAttemptPlace(tileId, cell) {
         if (!G || G.gameOver || !G.rush) return;
+        if (G.rushPvp && Date.now() < G.rushPvp.startAt) return; // PvP countdown: no early placements
         if (!isLetterCell(cell) || G.filled[cell] !== null) return;
         const ti = G.rack.findIndex((t) => t.id === tileId);
         if (ti === -1 || G.rack[ti].used) return;
@@ -3246,6 +3268,7 @@ if (G.live) {
          Rematch (same Rush mode/difficulty) and New Match actions. */
       function rushFinish() {
         if (!G || G.gameOver) return;
+        if (G.rushPvp) { rushPvpLocalFinish(); return; } // PvP: the final score exchange decides, not a straight endGame
         rushStopClock();
         endGame();
       }
@@ -3287,6 +3310,206 @@ if (G.live) {
           if (rushFlash.timer) clearTimeout(rushFlash.timer);
           rushFlash.timer = setTimeout(() => { box.hidden = true; box.classList.remove("show"); }, 1100);
         } catch (e) {}
+      }
+
+      /* ================= Rush PvP (build 5 — race a friend) =================
+         Rush as a selectable game type in the Online/Friends flows:
+         a friend room or a matchmaking pairing whose type is "rush"
+         runs THIS race instead of the shared-board Split Screen game.
+         Each racer plays their OWN board; fairness comes from the
+         room: the host deals one puzzle (sent in the clear, like
+         Split Screen's start) plus a seed, and both phones draw
+         tiles from the identical seeded stream (rushPvpStream) —
+         the same opening rack and the same refill sequence for both.
+         One clock for both: the host's startAt timestamp; every
+         phone measures the same 180 seconds from it. Scores travel
+         over the room's event stream as {t:"rushScore"} updates
+         (sync clock below, sent on change); the race is decided once
+         both finals are in, or after a short grace wait with the
+         last known score. A mid-race leave or forfeit is a win for
+         the player who stayed. Transport and screens live in
+         SwishLive (beginLiveRush); everything here is race state and
+         rules, exercised by tools/rush-pvp-sim.js. */
+      const RUSH_PVP_COUNTDOWN_MS = 5000; // host startAt = now + this
+      const RUSH_PVP_SYNC_MS = 500;       // score-sync cadence
+      const RUSH_PVP_GRACE_MS = 3000;     // wait for the peer's final before deciding
+
+      /* The shared tile stream: mulberry32 over the room seed,
+         drawing from the same weighted LETTER_BAG as drawTiles.
+         nextId() hands out rack-unique tile ids without drawing a
+         letter (the never-dead guarantee uses it, so the guarantee
+         can never desync the letter sequence). */
+      function rushPvpStream(seed) {
+        const next = mulberry32(seed >>> 0);
+        let seq = 0;
+        return {
+          drawTile() {
+            seq += 1;
+            return { id: seq, letter: LETTER_BAG[Math.floor(next() * LETTER_BAG.length)], used: false };
+          },
+          draw(n) { const out = []; for (let i = 0; i < n; i++) out.push(this.drawTile()); return out; },
+          nextId() { seq += 1; return seq; }
+        };
+      }
+
+      /* Install the race on a fresh newGame(..., "rush"): shared
+         stream in place, opening rack dealt from it (identical on
+         both phones), opponent shadow state zeroed. */
+      function rushPvpSetup(seed, startAt) {
+        const stream = rushPvpStream(seed);
+        G.rush = rushNewState();
+        G.rushPvp = {
+          seed, startAt, stream,
+          opp: { score: 0, combo: 1, letters: 0, words: 0, final: false },
+          localFinal: false, finalized: false, went: false,
+          lastSent: "", tickId: null, syncId: null, graceId: null
+        };
+        G.rack = stream.draw(RACK_SIZE);
+      }
+
+      function rushPvpSendScore(final) {
+        if (!G || !G.rushPvp || !window.SwishLive) return;
+        const P = G.rushPvp;
+        const payload = {
+          t: "rushScore",
+          score: G.scores[0],
+          combo: G.rush ? (G.rush.combo[0] || 1) : 1,
+          letters: G.lettersPlaced[0],
+          words: G.wordsCompleted[0],
+          final: !!final
+        };
+        const key = [payload.score, payload.combo, payload.letters, payload.words, payload.final].join("|");
+        if (!final && key === P.lastSent) return;
+        P.lastSent = key;
+        SwishLive.rushPvpSend(payload);
+      }
+
+      /* One race tick (250 ms cadence from rushPvpStartClock; `now`
+         is a parameter so the rules can be exercised headlessly).
+         The countdown is shared wall-clock: before startAt nothing
+         counts down and placements are refused (rushAttemptPlace);
+         from startAt both phones run the same 180 seconds. The
+         forfeit modal does NOT pause a PvP race — the peer's clock
+         keeps running too. */
+      function rushPvpTick(now) {
+        if (!G || !G.rushPvp || G.gameOver || G.rushPvp.finalized) return;
+        const P = G.rushPvp, R = G.rush;
+        if (now < P.startAt) {
+          R.secondsLeft = RUSH_SECONDS;
+          renderTimer();
+          const st = $("statusLine");
+          if (st) st.textContent = "Race starts in " + Math.ceil((P.startAt - now) / 1000) + "\u2026";
+          return;
+        }
+        if (!P.went) {
+          P.went = true;
+          rushFlash("GO!");
+          const st = $("statusLine");
+          if (st) st.textContent = "GO! Highest score at 0:00 wins the race.";
+        }
+        if (rushComboExpire(R, 0, now)) { rushRenderCombo(); renderHud(); }
+        R.elapsedMs = Math.max(0, now - P.startAt);
+        const sLeft = Math.max(0, RUSH_SECONDS - Math.floor(R.elapsedMs / 1000));
+        if (sLeft !== R.secondsLeft) { R.secondsLeft = sLeft; renderTimer(); }
+        rushRenderCombo();
+        if (sLeft <= 0) rushPvpLocalFinish();
+      }
+
+      function rushPvpStartClock() {
+        if (!G || !G.rushPvp) return;
+        rushPvpStopClock();
+        const P = G.rushPvp;
+        const token = gameSeq.id;
+        P.tickId = setInterval(() => {
+          if (token !== gameSeq.id || !G || G.rushPvp !== P) { rushPvpStopClock(); return; }
+          rushPvpTick(Date.now());
+        }, 250);
+        P.syncId = setInterval(() => {
+          if (token !== gameSeq.id || !G || G.rushPvp !== P) return;
+          rushPvpSendScore(false);
+        }, RUSH_PVP_SYNC_MS);
+        rushPvpTick(Date.now());
+      }
+
+      function rushPvpStopClock() {
+        const P = G && G.rushPvp;
+        if (!P) return;
+        if (P.tickId) { clearInterval(P.tickId); P.tickId = null; }
+        if (P.syncId) { clearInterval(P.syncId); P.syncId = null; }
+        if (P.graceId) { clearTimeout(P.graceId); P.graceId = null; }
+      }
+
+      /* My race is done (clock out or board full): lock my score,
+         send it as final, and decide as soon as the peer's final is
+         in — or after the grace wait with their last known score. */
+      function rushPvpLocalFinish() {
+        if (!G || !G.rushPvp || G.rushPvp.localFinal || G.gameOver) return;
+        const P = G.rushPvp;
+        P.localFinal = true;
+        if (P.tickId) { clearInterval(P.tickId); P.tickId = null; }
+        rushPvpSendScore(true);
+        if (P.opp.final) { rushPvpFinalize(); return; }
+        const st = $("statusLine");
+        if (st) st.textContent = "Time! Waiting for your opponent to finish\u2026";
+        P.graceId = setTimeout(() => {
+          if (G && G.rushPvp && !G.rushPvp.finalized) rushPvpFinalize();
+        }, RUSH_PVP_GRACE_MS);
+      }
+
+      /* A peer score report: mirror it onto side 1 (the VS bars and
+         the results table read G.scores[1] & friends), and if both
+         finals are now in, decide the race. */
+      function rushPvpReceiveScore(ev) {
+        if (!G || !G.rushPvp || G.rushPvp.finalized) return;
+        const P = G.rushPvp;
+        P.opp = {
+          score: ev.score | 0,
+          combo: Math.max(1, ev.combo | 0),
+          letters: ev.letters | 0,
+          words: ev.words | 0,
+          final: !!ev.final
+        };
+        G.scores[1] = P.opp.score;
+        G.lettersPlaced[1] = P.opp.letters;
+        G.wordsCompleted[1] = P.opp.words;
+        if (G.rush) G.rush.combo[1] = P.opp.combo;
+        renderHud();
+        if (P.opp.final && P.localFinal) rushPvpFinalize();
+      }
+
+      /* The peer's endGame "over" event doubles as their final
+         report in a race (their scores[0] is their own final). */
+      function rushPvpReceiveOver(ev) {
+        if (!G || !G.rushPvp || G.rushPvp.finalized) return;
+        const P = G.rushPvp;
+        if (!P.opp.final) {
+          P.opp.score = (ev.scores && ev.scores[0]) | 0;
+          P.opp.final = true;
+          G.scores[1] = P.opp.score;
+          renderHud();
+        }
+        if (P.localFinal) rushPvpFinalize();
+      }
+
+      /* The peer left or forfeited mid-race: the player who stayed
+         wins, whatever the scoreboard says (endGame applies the
+         G.oppLeft override below). */
+      function rushPvpOppLeft() {
+        if (!G || !G.rushPvp || G.rushPvp.finalized || G.gameOver) return;
+        G.oppLeft = true;
+        G.rushPvp.localFinal = true;
+        rushPvpFinalize();
+      }
+
+      function rushPvpFinalize() {
+        if (!G || !G.rushPvp || G.rushPvp.finalized) return;
+        const P = G.rushPvp;
+        P.finalized = true;
+        rushPvpStopClock();
+        G.scores[1] = P.opp.score;
+        G.lettersPlaced[1] = P.opp.letters;
+        G.wordsCompleted[1] = P.opp.words;
+        endGame();
       }
       /* ================= Rendering ================= */
       const $ = (id) => document.getElementById(id);
@@ -3651,7 +3874,16 @@ if (G.live) {
 
       function showGameOver() {
         const t = $("overTitle");
-        if (G.forfeited) { t.textContent = G.mode === "practice" ? "You quit" : "You forfeited \u2014 CPU wins"; t.className = "winner-cpu"; }
+        if (G.rushPvp) {
+          // PvP race results name the actual opponent, never the CPU.
+          const nm = opponentName();
+          if (G.oppLeft) { t.textContent = nm + " left \u2014 you win!"; t.className = "winner-you"; }
+          else if (G.forfeited) { t.textContent = "You forfeited \u2014 " + nm + " wins"; t.className = "winner-cpu"; }
+          else if (G.winner === 0) { t.textContent = "You win!"; t.className = "winner-you"; }
+          else if (G.winner === 1) { t.textContent = nm + " wins"; t.className = "winner-cpu"; }
+          else { t.textContent = "It's a tie!"; t.className = ""; }
+        }
+        else if (G.forfeited) { t.textContent = G.mode === "practice" ? "You quit" : "You forfeited \u2014 CPU wins"; t.className = "winner-cpu"; }
         else if (G.winner === 0) { t.textContent = "You win!"; t.className = "winner-you"; }
         else if (G.winner === 1) { t.textContent = "CPU wins"; t.className = "winner-cpu"; }
         else { t.textContent = "It's a tie!"; t.className = ""; }
@@ -3700,7 +3932,7 @@ if (G.live) {
         // Interstitial after every finished game (native enforces a 180s minimum gap).
         Ads.gameFinished();
         // Add "watch ad to continue" button for losers (Kryss-style revive).
-        if (Ads.available && G.mode !== "practice" && G.winner === 1) {
+        if (Ads.available && G.mode !== "practice" && G.winner === 1 && !G.rushPvp) {
           let contBtn = $("continueAdBtn");
           if (!contBtn) {
             contBtn = document.createElement("button");
@@ -3879,10 +4111,11 @@ if (G.live) {
          for a new one. */
       $("newMatchBtn").addEventListener("click", () => {
         if (G && G.live) {
+          const wasRush = !!G.rushPvp;
           $("overModal").hidden = true;
           SwishLive.leave();
           exitToMenu(false);
-          SwishLive.matchmake();
+          SwishLive.matchmake(wasRush ? "rush" : undefined);
           return;
         }
         exitToMenu(false);
@@ -3890,12 +4123,25 @@ if (G.live) {
         const pb = $("playBtn");
         if (pb && pb.scrollIntoView) pb.scrollIntoView({ behavior: "smooth", block: "center" });
       });
+      /* Undo the Rush-race panel naming (opponent name on the rival
+         panel / results header, RUSH RACE badge) when heading back to
+         the menu, so solo and Split Screen screens read as before. */
+      function resetOpponentPanel() {
+        const box = $("scoreCpu");
+        const who = box && box.querySelector ? box.querySelector(".who") : null;
+        if (who && who.childNodes.length) who.childNodes[who.childNodes.length - 1].textContent = "CPU";
+        const head = $("statCpuHead");
+        if (head) head.textContent = "CPU";
+        const badge = document.querySelector(".live-badge");
+        if (badge && badge.childNodes.length) badge.childNodes[badge.childNodes.length - 1].textContent = "SPLIT SCREEN";
+      }
       function exitToMenu(saveFirst) {
         autoSaveGame(); // the in-progress game stays resumable from the menu
         if (saveFirst && !saveCurrentGame()) return;
         gameSeq.id += 1;
         stopTimer();
         rushStopClock();
+        resetOpponentPanel();
         G = null;
         document.body.classList.remove("rush-on");
         $("overModal").hidden = true;
@@ -5009,6 +5255,7 @@ if (G.live) {
         G.gameOver = true;
         G.aiBusy = false;
         G.winner = G.mode === "practice" ? null : 1;
+        if (G.rushPvp && window.SwishLive) SwishLive.rushPvpForfeit(); // tell the racer: they win by forfeit
         recordGameFinished();
         renderAll();
         showGameOver();
@@ -6718,6 +6965,7 @@ const okHP = await shareInviteText(text);
           peerTurnPts: 0, ghost: new Set(), lastCell: null, applying: false,
           seeking: false, viaMatch: false, myNonce: 0, peerSeek: null, mmTimer: null,
           rematchState: "idle", rematchTimer: null, reactTimer: null,
+          gameType: "split", // room game type: "split" (shared board) or "rush" (build 5 race)
         };
         const nativeReady = () => !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.live);
         const busReady = () => !!window.__SWISH_LIVE_BUS;
@@ -6760,6 +7008,67 @@ const okHP = await shareInviteText(text);
         function gameEnded() {
           if (!L.active || L.applying) return;
           emit("over", { scores: G ? G.scores.slice() : [0, 0] });
+        }
+
+        /* ---------- Rush races (build 5): transport ----------
+           The race rules live with the Rush section (rushPvpSetup /
+           rushPvpTick / rushPvpReceiveScore / rushPvpOppLeft); this
+           layer only moves events over the room stream and runs the
+           screens, exactly like Split Screen's start flow. */
+        function rushPvpSend(obj) { send(obj); }
+        function rushPvpForfeit() { if (L.active) emit("rushForfeit", {}); }
+        function setOppPanel(name) {
+          const box = $("scoreCpu");
+          const who = box && box.querySelector ? box.querySelector(".who") : null;
+          if (who && who.childNodes.length) who.childNodes[who.childNodes.length - 1].textContent = name;
+          const head = $("statCpuHead");
+          if (head) head.textContent = name;
+          const badge = document.querySelector(".live-badge");
+          if (badge && badge.childNodes.length) badge.childNodes[badge.childNodes.length - 1].textContent = "RUSH RACE";
+        }
+        function hostRushStart() {
+          if (!L.active) return;
+          L.started = true;
+          send({ t: "hello", name: myName() });
+          const puzzle = generatePuzzle(wordListForMode("standard"));
+          puzzle.title = "Rush";
+          const seed = (Math.random() * 4294967296) >>> 0;
+          const startAt = Date.now() + RUSH_PVP_COUNTDOWN_MS;
+          send({ t: "rushStart", puzzle, seed, startAt });
+          beginLiveRush(puzzle, seed, startAt, true);
+        }
+        function beginLiveRush(puzzle, seed, startAt, isHost) {
+          L.gameType = "rush";
+          L.started = true;
+          L.seeking = false;
+          L.rematchState = "idle";
+          clearRematchTimer();
+          if (L.mmTimer) { clearTimeout(L.mmTimer); L.mmTimer = null; }
+          hideOverlay();
+          newGame(puzzle, "normal", "rush");
+          G.live = { room: L.room, host: isHost, rush: true };
+          rushPvpSetup(seed, startAt);
+          sendRack();
+          $("overModal").hidden = true;
+          $("clueModal").hidden = true;
+          $("startScreen").hidden = true;
+          $("statsScreen").hidden = true;
+          $("shopScreen").hidden = true;
+          $("friendsScreen").hidden = true;
+          $("boardScreen").hidden = true;
+          $("walletBar").hidden = true;
+          $("tabBar").hidden = true;
+          $("tutorialOverlay").hidden = true;
+          $("gameScreen").hidden = false;
+          document.body.classList.add("rush-on");
+          if (window.Ads && Ads.hideBanner) Ads.hideBanner();
+          buildBoard();
+          renderAll();
+          setOppPanel(peerLabel());
+          setStatus("Rush race vs " + peerLabel() + " \u2014 same puzzle, same tiles. Get ready\u2026");
+          rushPvpStartClock();
+          window.scrollTo(0, 0);
+          paint();
         }
 
         /* ---------- reactions (emoji taunts) ----------
@@ -6833,6 +7142,21 @@ const okHP = await shareInviteText(text);
         }
         function hostRematchStart() {
           if (!L.active) return;
+          if (L.gameType === "rush") {
+            // Rush rematch: same room, fresh puzzle and a NEW seed —
+            // a new race, dealt by the host like the first one.
+            L.started = true;
+            L.rematchState = "idle";
+            clearRematchTimer();
+            paintRematch();
+            const puzzle = generatePuzzle(wordListForMode("standard"));
+            puzzle.title = "Rush";
+            const seed = (Math.random() * 4294967296) >>> 0;
+            const startAt = Date.now() + RUSH_PVP_COUNTDOWN_MS;
+            send({ t: "rushStart", puzzle, seed, startAt });
+            beginLiveRush(puzzle, seed, startAt, true);
+            return;
+          }
           L.started = true;
           L.rematchState = "idle";
           clearRematchTimer();
@@ -6843,8 +7167,18 @@ const okHP = await shareInviteText(text);
         }
 
         /* ---------- friend room flow ---------- */
-        function createRoom() {
-          if (!available()) { showToast("Split Screen play is available in the S.W.I.S.H - Crossword Battle ARCADE app."); setStatus("Split Screen needs the app — it plays live over the internet."); return; }
+        function createRoom(gameType) {
+          L.gameType = gameType === "rush" ? "rush" : "split";
+          if (!available()) {
+            if (L.gameType === "rush") {
+              showToast("Rush races are available in the S.W.I.S.H - Crossword Battle ARCADE app.");
+              setStatus("Rush races need the app — they play live over the internet.");
+            } else {
+              showToast("Split Screen play is available in the S.W.I.S.H - Crossword Battle ARCADE app.");
+              setStatus("Split Screen needs the app — it plays live over the internet.");
+            }
+            return;
+          }
           L.isHost = true;
           L.viaMatch = false;
           if (nativeReady()) {
@@ -6894,6 +7228,7 @@ const okHP = await shareInviteText(text);
         function hostStart() {
           if (L.started) return;
           L.started = true;
+          if (L.gameType === "rush") { hostRushStart(); return; }
           send({ t: "hello", name: myName() });
           const puzzle = generatePuzzle(wordListForMode("standard"));
           send({ t: "start", puzzle, diffKey: currentDiff });
@@ -6938,6 +7273,7 @@ const okHP = await shareInviteText(text);
         }
         function leave() {
           if (L.active) emit("bye", {});
+          if (G && G.rushPvp) rushPvpStopClock(); // abandoning a race: stop its clocks (the peer gets the forfeit win via "bye")
           L.rematchState = "idle";
           clearRematchTimer();
           paintRematch();
@@ -6952,31 +7288,41 @@ const okHP = await shareInviteText(text);
           setStatus("You left the Split Screen room.");
         }
 
-        /* ---------- Split Screen matchmaking (open online mode) ---------- */
-        function matchmake() {
+        /* ---------- Split Screen + Rush matchmaking (open online mode) ---------- */
+        function matchmake(gameType) {
+          const type = gameType === "rush" ? "rush" : "split";
           if (!available()) {
-            showToast("Split Screen matchmaking is available in the S.W.I.S.H - Crossword Battle ARCADE app.");
-            setMMStatus("Split Screen matchmaking needs the app — it plays live over the internet.");
+            showToast(type === "rush"
+              ? "Rush race matchmaking is available in the S.W.I.S.H - Crossword Battle ARCADE app."
+              : "Split Screen matchmaking is available in the S.W.I.S.H - Crossword Battle ARCADE app.");
+            setMMStatus(type === "rush"
+              ? "Rush race matchmaking needs the app — it plays live over the internet."
+              : "Split Screen matchmaking needs the app — it plays live over the internet.");
             return;
           }
           if (L.seeking || L.active) return;
+          L.gameType = type;
           L.viaMatch = true;
           L.seeking = true;
           L.isHost = false;
-          showOverlay("Looking for a player…", "Split Screen matchmaking — the first player found gets matched with you for a live game.");
-          setMMStatus("Searching for a Split Screen opponent…");
+          showOverlay("Looking for a player\u2026", type === "rush"
+            ? "Rush matchmaking — the first player found races you live: same puzzle, same tiles, 3 minutes on the clock."
+            : "Split Screen matchmaking — the first player found gets matched with you for a live game.");
+          setMMStatus(type === "rush" ? "Searching for a Rush race opponent\u2026" : "Searching for a Split Screen opponent\u2026");
           if (nativeReady()) {
-            window.webkit.messageHandlers.live.postMessage({ action: "matchmake", name: myName() });
+            window.webkit.messageHandlers.live.postMessage({ action: "matchmake", name: myName(), gameType: type });
           } else {
             L.myNonce = Math.floor(Math.random() * 1e9);
-            send({ _mm: "seek", name: myName(), nonce: L.myNonce });
+            send({ _mm: "seek", name: myName(), nonce: L.myNonce, gameType: type });
             tryBusPair();
           }
           L.mmTimer = setTimeout(() => {
             if (!L.seeking) return;
             cancelMatchmake();
-            setMMStatus("No players online right now — try again, or invite a friend with a room code from the Friends tab.");
-            showToast("No Split Screen players online right now.");
+            setMMStatus(type === "rush"
+              ? "No racers online right now — try again, or invite a friend with a room code from the Friends tab."
+              : "No players online right now — try again, or invite a friend with a room code from the Friends tab.");
+            showToast(type === "rush" ? "No Rush racers online right now." : "No Split Screen players online right now.");
           }, 60000);
         }
         function cancelMatchmake() {
@@ -6995,6 +7341,7 @@ const okHP = await shareInviteText(text);
            guest, the smaller hosts. */
         function tryBusPair() {
           if (!L.seeking || !L.peerSeek || L.active) return;
+          if ((L.peerSeek.gameType || "split") !== L.gameType) return; // never pair a racer with a Split Screen seeker
           if (L.myNonce > L.peerSeek.nonce) {
             const code = "MM" + Math.floor(1000 + Math.random() * 9000);
             send({ _mm: "accept", code });
@@ -7025,7 +7372,7 @@ const okHP = await shareInviteText(text);
           try { ev = JSON.parse(str); } catch (e) { return; }
           if (!ev) return;
           if (ev._mm === "seek") {
-            L.peerSeek = { name: ev.name, nonce: ev.nonce };
+            L.peerSeek = { name: ev.name, nonce: ev.nonce, gameType: ev.gameType || "split" };
             if (ev.name) L.peerName = L.peerName || ev.name;
             tryBusPair();
             return;
@@ -7040,14 +7387,37 @@ const okHP = await shareInviteText(text);
             return;
           }
           if (ev.t === "start") {
+            L.gameType = "split";
             L.rematchState = "idle";
             clearRematchTimer();
             paintRematch();
             if (!L.isHost && L.active) beginLive(ev.puzzle, ev.diffKey, false);
             return;
           }
+          if (ev.t === "rushStart") {
+            L.rematchState = "idle";
+            clearRematchTimer();
+            paintRematch();
+            if (!L.isHost && L.active) beginLiveRush(ev.puzzle, ev.seed, ev.startAt, false);
+            return;
+          }
+          if (ev.t === "rushScore") { rushPvpReceiveScore(ev); return; }
+          if (ev.t === "rushForfeit") {
+            if (G && G.rushPvp && !G.gameOver) {
+              rushPvpOppLeft();
+              showToast(peerLabel() + " forfeited the race.");
+            }
+            return;
+          }
           if (ev.t === "bye") {
             L.peerHere = false;
+            if (G && G.rushPvp && !G.gameOver) {
+              // Mid-race leave: the player who stayed wins by forfeit.
+              rushPvpOppLeft();
+              showToast(peerLabel() + " left the race.");
+              paint();
+              return;
+            }
             setStatus(peerLabel() + " left the room.");
             showToast(peerLabel() + " left the Split Screen game.");
             paint();
@@ -7147,6 +7517,7 @@ const okHP = await shareInviteText(text);
             paint();
             setStatus("Your turn");
           } else if (ev.t === "over") {
+            if (G.rushPvp) { rushPvpReceiveOver(ev); paint(); return; } // races finalize from rushScore finals; "over" is the peer's finish ack
             L.applying = true;
             G.scores = [ev.scores[1], ev.scores[0]];
             L.ghost.clear();
@@ -7220,6 +7591,7 @@ const okHP = await shareInviteText(text);
           sendRack, placed, selected, undone, swapped, commitTurn, gameEnded,
           react, requestRematch, answerRematch, paintRematch,
           matchmake, cancelMatchmake,
+          rushPvpSend, rushPvpForfeit,
           _onEvent: onEvent, _onRoom: onRoom, _onPeer: onPeer, _onError: onError,
           _state: L,
         };
@@ -7238,7 +7610,15 @@ const okHP = await shareInviteText(text);
         const srcImg = document.querySelector("img.mascot");
         if (srcImg) $("mmMascot").src = srcImg.src;
       }
-      if ($("liveCreateBtn")) $("liveCreateBtn").addEventListener("click", () => SwishLive.createRoom());
+      let liveTypeSel = "split";
+      document.querySelectorAll(".live-type-btn").forEach((b) => b.addEventListener("click", () => {
+        liveTypeSel = b.dataset.ltype === "rush" ? "rush" : "split";
+        document.querySelectorAll(".live-type-btn").forEach((x) =>
+          x.setAttribute("aria-pressed", x === b ? "true" : "false"));
+        const cb = $("liveCreateBtn");
+        if (cb) cb.textContent = liveTypeSel === "rush" ? "Create a Rush race room" : "Create a Split Screen room";
+      }));
+      if ($("liveCreateBtn")) $("liveCreateBtn").addEventListener("click", () => SwishLive.createRoom(liveTypeSel));
       if ($("liveJoinBtn")) $("liveJoinBtn").addEventListener("click", () => {
         const v = ($("liveJoinInput").value || "").trim().toUpperCase();
         if (v) SwishLive.joinRoom(v);
@@ -7248,6 +7628,7 @@ const okHP = await shareInviteText(text);
         showToast("Left the Split Screen game.");
       });
       if ($("mmFindBtn")) $("mmFindBtn").addEventListener("click", () => SwishLive.matchmake());
+      if ($("mmRushBtn")) $("mmRushBtn").addEventListener("click", () => SwishLive.matchmake("rush"));
       document.querySelectorAll(".react-btn").forEach((b) =>
         b.addEventListener("click", () => SwishLive.react(b.dataset.emoji)));
       if ($("liveRematchBtn")) $("liveRematchBtn").addEventListener("click", () => SwishLive.requestRematch());

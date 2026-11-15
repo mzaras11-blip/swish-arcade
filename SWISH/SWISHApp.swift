@@ -239,7 +239,8 @@ final class LiveBridge: NSObject, WKScriptMessageHandler {
         case "leave":
             leaveRoom()
         case "matchmake":
-            matchmake(name: dict["name"] as? String ?? "Player")
+            matchmake(name: dict["name"] as? String ?? "Player",
+                      gameType: dict["gameType"] as? String ?? "split")
         case "matchmakeCancel":
             matchmakeCancel()
         default:
@@ -321,7 +322,11 @@ final class LiveBridge: NSObject, WKScriptMessageHandler {
     // (the waiter pre-created their room, so the claimer just joins it);
     // otherwise the searcher creates a room and waits on their own ticket.
 
-    private func matchmake(name: String) {
+    // Game types (build 5): tickets carry a "gameType" ("split" or
+    // "rush"); seekers only claim tickets of their own type. Tickets
+    // written by older builds have no gameType and count as "split".
+
+    private func matchmake(name: String, gameType: String) {
         guard !myUID.isEmpty else {
             callError("Sign-in is not ready yet — try again in a moment.")
             return
@@ -336,23 +341,24 @@ final class LiveBridge: NSObject, WKScriptMessageHandler {
                 let now = Date()
                 let candidate = (snap?.documents ?? []).first { doc in
                     guard doc.documentID != self.myUID else { return false }
+                    guard ((doc.data()["gameType"] as? String) ?? "split") == gameType else { return false }
                     guard let ts = doc.data()["createdAt"] as? Timestamp else { return false }
                     return ts.dateValue().timeIntervalSince(now) > -180
                 }
                 if let ticket = candidate {
-                    self.claim(ticket: ticket, name: name)
+                    self.claim(ticket: ticket, name: name, gameType: gameType)
                 } else {
-                    self.enqueue(name: name)
+                    self.enqueue(name: name, gameType: gameType)
                 }
             }
     }
 
-    private func claim(ticket: QueryDocumentSnapshot, name: String) {
+    private func claim(ticket: QueryDocumentSnapshot, name: String, gameType: String) {
         let ref = ticket.reference
         let room = ticket.data()["room"] as? String ?? ""
         let hostName = ticket.data()["username"] as? String ?? "Player"
         let uid = myUID
-        guard !room.isEmpty else { enqueue(name: name); return }
+        guard !room.isEmpty else { enqueue(name: name, gameType: gameType); return }
         db.runTransaction({ txn, _ -> Any? in
             let snap = try? txn.getDocument(ref)
             guard let data = snap?.data(), (data["status"] as? String) == "waiting" else { return nil }
@@ -362,7 +368,7 @@ final class LiveBridge: NSObject, WKScriptMessageHandler {
         }, completion: { [weak self] result, err in
             guard let self else { return }
             if err != nil || (result as? String) == nil {
-                self.enqueue(name: name)
+                self.enqueue(name: name, gameType: gameType)
                 return
             }
             self.peerJoined = true
@@ -373,7 +379,7 @@ final class LiveBridge: NSObject, WKScriptMessageHandler {
         })
     }
 
-    private func enqueue(name: String) {
+    private func enqueue(name: String, gameType: String) {
         let code = Self.makeCode()
         writeRoom(code: code, name: name) { [weak self] ok in
             guard let self else { return }
@@ -386,6 +392,7 @@ final class LiveBridge: NSObject, WKScriptMessageHandler {
             ticket.setData([
                 "uid": self.myUID, "username": name, "room": code,
                 "status": "waiting", "createdAt": FieldValue.serverTimestamp(),
+                "gameType": gameType,
             ]) { err in
                 if let err {
                     self.callError("Could not start matchmaking: \(err.localizedDescription)")
