@@ -1,0 +1,157 @@
+// S.W.I.S.H async multiplayer — Firestore security rules
+//
+// Principle: the client can only *request* actions. Match docs, turn
+// records, stats, and challenges are written exclusively by Cloud
+// Functions (Admin SDK bypasses these rules). Clients get the minimum
+// access needed to play.
+//
+// Deploy (separate step): firebase deploy --only firestore:rules
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+    function me(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // ---------------------------------------------------------- profiles
+    match /users/{uid} {
+      // Any signed-in player can read public profiles (usernames, records).
+      allow read: if signedIn();
+
+      // Profile creation: stats must start at zero — a client can never
+      // grant itself wins. FCM tokens and lastSeenAt are client-writable.
+      allow create: if me(uid)
+        && request.resource.data.uid == uid
+        && request.resource.data.wins == 0
+        && request.resource.data.losses == 0
+        && request.resource.data.draws == 0
+        && request.resource.data.username is string
+        && request.resource.data.username.size() <= 16;
+
+      // Updates: the client may change fcmTokens and lastSeenAt only.
+      // username (claimed once via the usernames transaction), stats,
+      // uid, and createdAt are immutable to clients.
+      allow update: if me(uid)
+        && request.resource.data.uid == resource.data.uid
+        && (request.resource.data.username == resource.data.username
+            // One-time username claim: may set username only from "" to a
+            // valid 3–16 char name (the claim transaction also writes the
+            // usernames/{name} doc, which is create-if-mine below).
+            || (resource.data.username == ""
+                && request.resource.data.username is string
+                && request.resource.data.username.size() >= 3
+                && request.resource.data.username.size() <= 16))
+        && request.resource.data.wins == resource.data.wins
+        && request.resource.data.losses == resource.data.losses
+        && request.resource.data.draws == resource.data.draws
+        && request.resource.data.createdAt == resource.data.createdAt;
+
+      // Account deletion (Apple Guideline 5.1.1(v)): the owner may
+      // delete their own profile doc. The native deleteAccount op
+      // batches this with the friends subcollection, the usernames
+      // claim, and the player's matchmaking tickets, then deletes the
+      // Firebase Auth user itself.
+      allow delete: if me(uid);
+
+      // Challenges live under the RECIPIENT. Written only by the
+      // sendChallenge / respondToChallenge functions; the recipient
+      // reads them in the inbox.
+      match /challenges/{cid} {
+        allow read: if me(uid);
+        allow create, update, delete: if false;
+      }
+
+      // Friends added by username (AuthBridge addFriend/listFriends).
+      // Owner-only: nobody else can read or change your friend list.
+      match /friends/{friendUid} {
+        allow read, write: if me(uid);
+      }
+    }
+
+    // ---------------------------------------------------------- usernames
+    // Case-insensitive uniqueness: the doc ID is the lowercased name and
+    // the claim transaction makes the first writer win. Clients can only
+    // create a claim for themselves; nobody can edit a claim, and a
+    // claim can be deleted only by the account it points at (account
+    // deletion — the doc holds nothing but that account's uid).
+    match /usernames/{name} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid']);
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    // ---------------------------------------------------------- matchmaking
+    // Tickets are private to their owner (prevents opponent snooping).
+    match /matchmaking/{uid} {
+      allow read, write: if me(uid);
+    }
+
+
+    // ---------------------------------------------------------- split screen rooms
+    // Split Screen live rooms: two signed-in players per room; events are
+    // append-only and stamped with the writer's uid by the app.
+    match /rooms/{code} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.hostUid == request.auth.uid;
+      allow update: if signedIn()
+        && (resource.data.hostUid == request.auth.uid
+            || resource.data.guestUid == request.auth.uid
+            || !("guestUid" in resource.data));
+      allow delete: if false;
+
+      match /events/{eventId} {
+        allow read: if signedIn();
+        allow create: if signedIn()
+          && request.resource.data.from == request.auth.uid;
+        allow update, delete: if false;
+      }
+    }
+
+    // ------------------------------------------------- split screen matchmaking
+    // Split Screen pairs client-side (no Cloud Function): a waiting ticket
+    // may be claimed by another signed-in player, so waiting tickets are
+    // readable and claimable. The ticket's room code points at a /rooms
+    // doc, which has its own rules above.
+    match /splitmatch/{uid} {
+      allow read: if signedIn();
+      allow create: if me(uid) && request.resource.data.uid == uid;
+      allow update: if signedIn()
+        && (me(uid) || resource.data.status == "waiting");
+      allow delete: if signedIn()
+        && (me(uid) || resource.data.status == "matched");
+    }
+
+    // ---------------------------------------------------------- matches
+    // Function-written only. Players in the match can read it (and its
+    // turn history for the audit trail).
+    match /matches/{matchId} {
+      allow read: if signedIn()
+        && request.auth.uid in resource.data.playerIds;
+      allow create, update, delete: if false;
+
+      match /turns/{n} {
+        allow read: if signedIn()
+          && request.auth.uid in get(
+               /databases/$(database)/documents/matches/$(matchId)
+             ).data.playerIds;
+        allow create, update, delete: if false;
+      }
+    }
+
+    // ---------------------------------------------------------- rate limits
+    // Function-managed; no client access at all.
+    match /ratelimits/{uid} {
+      allow read, write: if false;
+    }
+  }
+}

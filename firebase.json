@@ -1,0 +1,13 @@
+{
+  "firestore": {
+    "indexes": "firestore.indexes.json",
+    "rules": "firestore.rules"
+  },
+  "functions": [
+    {
+      "codebase": "swish",
+      "runtime": "nodejs22",
+      "source": "functions"
+    }
+  ]
+}

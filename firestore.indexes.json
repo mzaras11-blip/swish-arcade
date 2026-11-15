@@ -1,0 +1,1 @@
+{"fieldOverrides":[],"indexes":[{"collectionGroup":"matches","fields":[{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"turnDeadline","order":"ASCENDING"}],"queryScope":"COLLECTION"}]}

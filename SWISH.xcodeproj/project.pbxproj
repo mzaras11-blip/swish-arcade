@@ -1,0 +1,430 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+		B31220713B6C0FF698EBABD7 /* SWISHApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16A62FCE8E863C6DA86FBD8C /* SWISHApp.swift */; };
+		7FCA99F642FA2B3B5E5281AC /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = C22586ABB49CABC9DB8DB398 /* Models.swift */; };
+		3D76A415D631EE599BDB87A6 /* GameViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A56877EE906C65436B51B9BC /* GameViewModel.swift */; };
+		F22DE8E6CD8C4A707C59BEF5 /* Views.swift in Sources */ = {isa = PBXBuildFile; fileRef = A74F21807EBB5E63D99D1ABF /* Views.swift */; };
+		9A5002A2DA5654436834FC84 /* GameView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7DFCB5313D7FCBA7A827882 /* GameView.swift */; };
+		5E8A9746F900F688892BFC10 /* AdManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E6692491246D6B6CCC1F303 /* AdManager.swift */; };
+		E47FCD7DD0F911BCFDEFE069 /* StoreManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC34372641122CB09EC1870E /* StoreManager.swift */; };
+		B0FC6847580E543A6D5A66AA /* PuzzleGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 857C6D747E83DD79BB817F17 /* PuzzleGenerator.swift */; };
+		C208BDADCFFD40A09A048A7F /* Progress.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3AB24005D0524ED290751A0A /* Progress.swift */; };
+		D91E6D4C1322486AAA4AD396 /* PictureClues.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1092CD3B7EAC4DCC923BD1FD /* PictureClues.swift */; };
+		FA87DC4D3BB84DBC83B89136 /* MultiplayerModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E01C3EC841D4AB3B6B8B638 /* MultiplayerModels.swift */; };
+		DBED3D0080AC4533B941928B /* MultiplayerBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B1FBD1BAA3642DD89F66F97 /* MultiplayerBackend.swift */; };
+		C1A2B3C4D5E6F708192A3B4C5 /* FirebaseBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = D2B3C4D5E6F708192A3B4C5D6 /* FirebaseBackend.swift */; };
+		A1B2C3D4E5F60718293A4B01 /* AuthBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B02 /* AuthBridge.swift */; };
+		E3C4D5E6F708192A3B4C5D6E7 /* MultiplayerViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4D5E6F708192A3B4C5D6E7F8 /* MultiplayerViews.swift */; };
+		2C77C5971EB0E4B12F4FC750 /* puzzle-01.json in Resources */ = {isa = PBXBuildFile; fileRef = 493752131B431E5517CF561F /* puzzle-01.json */; };
+		974C6DF11CB57A71ED25E880 /* puzzle-02.json in Resources */ = {isa = PBXBuildFile; fileRef = 79DE0D2345B6BF3CABCF3371 /* puzzle-02.json */; };
+		C8A0BEC27B867957D8FE59F6 /* puzzle-03.json in Resources */ = {isa = PBXBuildFile; fileRef = 4EFE58E631B618601041B097 /* puzzle-03.json */; };
+		3FF8E04CE7983E575441DD26 /* puzzle-04.json in Resources */ = {isa = PBXBuildFile; fileRef = 4615AF658547636B7EB90EA8 /* puzzle-04.json */; };
+		42CF91AAF791842748DCFBDC /* puzzle-05.json in Resources */ = {isa = PBXBuildFile; fileRef = 37DCDB25C97D25710B91C684 /* puzzle-05.json */; };
+		74C28C3FD0046B0163E8479E /* puzzle-06.json in Resources */ = {isa = PBXBuildFile; fileRef = 997987F015249EF28F75CD76 /* puzzle-06.json */; };
+		AC843976424973064465DBF0 /* puzzle-07.json in Resources */ = {isa = PBXBuildFile; fileRef = BA3353D4B94516B47A1A5EA6 /* puzzle-07.json */; };
+		49D1841E4D120BD7D1C36AF5 /* puzzle-08.json in Resources */ = {isa = PBXBuildFile; fileRef = DB11FF9ACE8228E0C048DC10 /* puzzle-08.json */; };
+		19E064785BE47AA24081E4DF /* puzzle-09.json in Resources */ = {isa = PBXBuildFile; fileRef = 56AD278CDA2CDF8774293803 /* puzzle-09.json */; };
+		11E7084BA8ACAB50B9408DB0 /* puzzle-10.json in Resources */ = {isa = PBXBuildFile; fileRef = 18569476768C60CD4E9F352B /* puzzle-10.json */; };
+		6E3DC121F984C8C49780B4E0 /* puzzle-11.json in Resources */ = {isa = PBXBuildFile; fileRef = 6CEE03C1B01BC9CA15301F36 /* puzzle-11.json */; };
+		271DDA15EDAD1DAE1439BFA2 /* puzzle-12.json in Resources */ = {isa = PBXBuildFile; fileRef = E1543E701B48F40F4C98E22F /* puzzle-12.json */; };
+		1ED6BB7238BF4EA507F3BCC3 /* words.json in Resources */ = {isa = PBXBuildFile; fileRef = 1A0B6F2EDD11A4B3985F0D88 /* words.json */; };
+		44D37865DEF74AB991BA5418 /* web in Resources */ = {isa = PBXBuildFile; fileRef = 650383C9F264438184B5A897 /* web */; };
+		7F3A9B2C1D4E5F60718293A4 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 8E4B1C3D2F5A60718293B5C7 /* GoogleService-Info.plist */; };
+		EE01FED068924F49B92B8260 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 26870460239C42378156E27B /* PrivacyInfo.xcprivacy */; };
+		A6070B9CF28E71610AA267AE /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A790BB479B2477E3A634A1EB /* Assets.xcassets */; };
+		E762EB0AB4040AFAC516BBAF /* SWISH.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SWISH.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		16A62FCE8E863C6DA86FBD8C /* SWISHApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SWISHApp.swift; sourceTree = "<group>"; };
+		C22586ABB49CABC9DB8DB398 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		A56877EE906C65436B51B9BC /* GameViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameViewModel.swift; sourceTree = "<group>"; };
+		A74F21807EBB5E63D99D1ABF /* Views.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views.swift; sourceTree = "<group>"; };
+		E7DFCB5313D7FCBA7A827882 /* GameView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameView.swift; sourceTree = "<group>"; };
+		0E6692491246D6B6CCC1F303 /* AdManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdManager.swift; sourceTree = "<group>"; };
+		CC34372641122CB09EC1870E /* StoreManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreManager.swift; sourceTree = "<group>"; };
+		857C6D747E83DD79BB817F17 /* PuzzleGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PuzzleGenerator.swift; sourceTree = "<group>"; };
+		3AB24005D0524ED290751A0A /* Progress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Progress.swift; sourceTree = "<group>"; };
+		1092CD3B7EAC4DCC923BD1FD /* PictureClues.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PictureClues.swift; sourceTree = "<group>"; };
+		6E01C3EC841D4AB3B6B8B638 /* MultiplayerModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiplayerModels.swift; sourceTree = "<group>"; };
+		9B1FBD1BAA3642DD89F66F97 /* MultiplayerBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiplayerBackend.swift; sourceTree = "<group>"; };
+		D2B3C4D5E6F708192A3B4C5D6 /* FirebaseBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirebaseBackend.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4B02 /* AuthBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthBridge.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4B03 /* SWISH.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SWISH.entitlements; sourceTree = "<group>"; };
+		F4D5E6F708192A3B4C5D6E7F8 /* MultiplayerViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MultiplayerViews.swift; sourceTree = "<group>"; };
+		8E4B1C3D2F5A60718293B5C7 /* GoogleService-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = GoogleService-Info.plist; sourceTree = "<group>"; };
+		B15A13ACECE86FF5B996CE6C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A790BB479B2477E3A634A1EB /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		493752131B431E5517CF561F /* puzzle-01.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = puzzle-01.json; sourceTree = "<group>"; };
+		79DE0D2345B6BF3CABCF3371 /* puzzle-02.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = puzzle-02.json; sourceTree = "<group>"; };
+		4EFE58E631B618601041B097 /* puzzle-03.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = puzzle-03.json; sourceTree = "<group>"; };
+		4615AF658547636B7EB90EA8 /* puzzle-04.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = puzzle-04.json; sourceTree = "<group>"; };
+		37DCDB25C97D25710B91C684 /* puzzle-05.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = puzzle-05.json; sourceTree = "<group>"; };
+		997987F015249EF28F75CD76 /* puzzle-06.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = puzzle-06.json; sourceTree = "<group>"; };
+		BA3353D4B94516B47A1A5EA6 /* puzzle-07.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = puzzle-07.json; sourceTree = "<group>"; };
+		DB11FF9ACE8228E0C048DC10 /* puzzle-08.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = puzzle-08.json; sourceTree = "<group>"; };
+		56AD278CDA2CDF8774293803 /* puzzle-09.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = puzzle-09.json; sourceTree = "<group>"; };
+		18569476768C60CD4E9F352B /* puzzle-10.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = puzzle-10.json; sourceTree = "<group>"; };
+		6CEE03C1B01BC9CA15301F36 /* puzzle-11.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = puzzle-11.json; sourceTree = "<group>"; };
+		E1543E701B48F40F4C98E22F /* puzzle-12.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = puzzle-12.json; sourceTree = "<group>"; };
+		1A0B6F2EDD11A4B3985F0D88 /* words.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = Resources/words.json; sourceTree = "<group>"; };
+		650383C9F264438184B5A897 /* web */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Resources/web; sourceTree = "<group>"; };
+		26870460239C42378156E27B /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		7A70D71C385290AF96BF1031 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B31220713B6C0FF698EBABD7 /* SWISHApp.swift in Sources */,
+				7FCA99F642FA2B3B5E5281AC /* Models.swift in Sources */,
+				3D76A415D631EE599BDB87A6 /* GameViewModel.swift in Sources */,
+				F22DE8E6CD8C4A707C59BEF5 /* Views.swift in Sources */,
+				9A5002A2DA5654436834FC84 /* GameView.swift in Sources */,
+				5E8A9746F900F688892BFC10 /* AdManager.swift in Sources */,
+				E47FCD7DD0F911BCFDEFE069 /* StoreManager.swift in Sources */,
+				B0FC6847580E543A6D5A66AA /* PuzzleGenerator.swift in Sources */,
+				C208BDADCFFD40A09A048A7F /* Progress.swift in Sources */,
+				D91E6D4C1322486AAA4AD396 /* PictureClues.swift in Sources */,
+				FA87DC4D3BB84DBC83B89136 /* MultiplayerModels.swift in Sources */,
+				DBED3D0080AC4533B941928B /* MultiplayerBackend.swift in Sources */,
+				C1A2B3C4D5E6F708192A3B4C5 /* FirebaseBackend.swift in Sources */,
+				A1B2C3D4E5F60718293A4B01 /* AuthBridge.swift in Sources */,
+				E3C4D5E6F708192A3B4C5D6E7 /* MultiplayerViews.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		285BB1C1430063331E9F5DD0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A6070B9CF28E71610AA267AE /* Assets.xcassets in Resources */,
+				2C77C5971EB0E4B12F4FC750 /* puzzle-01.json in Resources */,
+				974C6DF11CB57A71ED25E880 /* puzzle-02.json in Resources */,
+				C8A0BEC27B867957D8FE59F6 /* puzzle-03.json in Resources */,
+				3FF8E04CE7983E575441DD26 /* puzzle-04.json in Resources */,
+				42CF91AAF791842748DCFBDC /* puzzle-05.json in Resources */,
+				74C28C3FD0046B0163E8479E /* puzzle-06.json in Resources */,
+				AC843976424973064465DBF0 /* puzzle-07.json in Resources */,
+				49D1841E4D120BD7D1C36AF5 /* puzzle-08.json in Resources */,
+				19E064785BE47AA24081E4DF /* puzzle-09.json in Resources */,
+				11E7084BA8ACAB50B9408DB0 /* puzzle-10.json in Resources */,
+				6E3DC121F984C8C49780B4E0 /* puzzle-11.json in Resources */,
+				271DDA15EDAD1DAE1439BFA2 /* puzzle-12.json in Resources */,
+				1ED6BB7238BF4EA507F3BCC3 /* words.json in Resources */,
+				7F3A9B2C1D4E5F60718293A4 /* GoogleService-Info.plist in Resources */,
+				EE01FED068924F49B92B8260 /* PrivacyInfo.xcprivacy in Resources */,
+				44D37865DEF74AB991BA5418 /* web in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		424153ED3CD079DB4DB459AF /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		518DA81DB9B99529C0C0AEBE = {
+			isa = PBXGroup;
+			children = (
+				8A512B79B819C96EBB20FA60 /* SWISH */,
+				547D009064F7C3F13BEF3460 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		547D009064F7C3F13BEF3460 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				E762EB0AB4040AFAC516BBAF /* SWISH.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		8A512B79B819C96EBB20FA60 /* SWISH */ = {
+			isa = PBXGroup;
+			children = (
+				16A62FCE8E863C6DA86FBD8C /* SWISHApp.swift */,
+				A1B2C3D4E5F60718293A4B02 /* AuthBridge.swift */,
+				A1B2C3D4E5F60718293A4B03 /* SWISH.entitlements */,
+				C22586ABB49CABC9DB8DB398 /* Models.swift */,
+				A56877EE906C65436B51B9BC /* GameViewModel.swift */,
+				A74F21807EBB5E63D99D1ABF /* Views.swift */,
+				E7DFCB5313D7FCBA7A827882 /* GameView.swift */,
+				0E6692491246D6B6CCC1F303 /* AdManager.swift */,
+				CC34372641122CB09EC1870E /* StoreManager.swift */,
+				857C6D747E83DD79BB817F17 /* PuzzleGenerator.swift */,
+				3AB24005D0524ED290751A0A /* Progress.swift */,
+				1092CD3B7EAC4DCC923BD1FD /* PictureClues.swift */,
+				B15A13ACECE86FF5B996CE6C /* Info.plist */,
+				A790BB479B2477E3A634A1EB /* Assets.xcassets */,
+				2ACD121981F020DC9F74E72B /* puzzles */,
+				1A0B6F2EDD11A4B3985F0D88 /* words.json */,
+				8E4B1C3D2F5A60718293B5C7 /* GoogleService-Info.plist */,
+				26870460239C42378156E27B /* PrivacyInfo.xcprivacy */,
+				5042FA1B1FB343BBA9289DAC /* Multiplayer */,
+				650383C9F264438184B5A897 /* web */,
+			);
+			path = SWISH;
+			sourceTree = "<group>";
+		};
+		2ACD121981F020DC9F74E72B /* puzzles */ = {
+			isa = PBXGroup;
+			children = (
+				493752131B431E5517CF561F /* puzzle-01.json */,
+				79DE0D2345B6BF3CABCF3371 /* puzzle-02.json */,
+				4EFE58E631B618601041B097 /* puzzle-03.json */,
+				4615AF658547636B7EB90EA8 /* puzzle-04.json */,
+				37DCDB25C97D25710B91C684 /* puzzle-05.json */,
+				997987F015249EF28F75CD76 /* puzzle-06.json */,
+				BA3353D4B94516B47A1A5EA6 /* puzzle-07.json */,
+				DB11FF9ACE8228E0C048DC10 /* puzzle-08.json */,
+				56AD278CDA2CDF8774293803 /* puzzle-09.json */,
+				18569476768C60CD4E9F352B /* puzzle-10.json */,
+				6CEE03C1B01BC9CA15301F36 /* puzzle-11.json */,
+				E1543E701B48F40F4C98E22F /* puzzle-12.json */,
+			);
+			path = "Resources/puzzles";
+			sourceTree = "<group>";
+		};
+		5042FA1B1FB343BBA9289DAC /* Multiplayer */ = {
+			isa = PBXGroup;
+			children = (
+				6E01C3EC841D4AB3B6B8B638 /* MultiplayerModels.swift */,
+				9B1FBD1BAA3642DD89F66F97 /* MultiplayerBackend.swift */,
+				D2B3C4D5E6F708192A3B4C5D6 /* FirebaseBackend.swift */,
+				F4D5E6F708192A3B4C5D6E7F8 /* MultiplayerViews.swift */,
+			);
+			path = Multiplayer;
+			sourceTree = "<group>";
+		};
+		6FDE16AB6CE6423157A60739 /* SWISH */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F2F62AAE534BA46EC59716F3 /* Build configuration list for PBXNativeTarget "SWISH" */;
+			buildPhases = (
+				7A70D71C385290AF96BF1031 /* Sources */,
+				424153ED3CD079DB4DB459AF /* Frameworks */,
+				285BB1C1430063331E9F5DD0 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SWISH;
+			packageProductDependencies = (
+				AA01BB02CC03DD04EE05FF06 /* FirebaseAuth */,
+				AA11BB22CC33DD44EE55FF66 /* FirebaseFirestore */,
+				1A2B3C4D5E6F708192A3B4C5D /* FirebaseMessaging */,
+				F1E2D3C4B5A69788796A5B4C /* FirebaseFunctions */,
+				A1B2C3D4E5F60718293A4B05 /* GoogleSignIn */,
+				A1B2C3D4E5F60718293A4B07 /* FacebookLogin */,
+				A1B2C3D4E5F60718293A4B08 /* FacebookCore */,
+				B1C2D3E4F5061728394A5B61 /* GoogleMobileAds */,
+			);
+			productName = SWISH;
+			productReference = E762EB0AB4040AFAC516BBAF /* SWISH.app */;
+			productType = "com.apple.product-type.application";
+			attributes = {
+				SystemCapabilities = {
+					com.apple.Push = {
+						enabled = 1;
+					};
+				};
+			};
+		};
+		F1A2B3C4D5E6F708192A3B4C /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 11.0.0;
+			};
+		};
+		AA01BB02CC03DD04EE05FF06 /* FirebaseAuth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F1A2B3C4D5E6F708192A3B4C /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAuth;
+		};
+		AA11BB22CC33DD44EE55FF66 /* FirebaseFirestore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F1A2B3C4D5E6F708192A3B4C /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFirestore;
+		};
+		1A2B3C4D5E6F708192A3B4C5D /* FirebaseMessaging */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F1A2B3C4D5E6F708192A3B4C /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseMessaging;
+		};
+		F1E2D3C4B5A69788796A5B4C /* FirebaseFunctions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F1A2B3C4D5E6F708192A3B4C /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseFunctions;
+		};
+		A1B2C3D4E5F60718293A4B04 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/google/GoogleSignIn-iOS";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.0.0;
+			};
+		};
+		A1B2C3D4E5F60718293A4B06 /* XCRemoteSwiftPackageReference "facebook-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/facebook/facebook-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 18.0.0;
+			};
+		};
+		B1C2D3E4F5061728394A5B60 /* XCRemoteSwiftPackageReference "swift-package-manager-google-mobile-ads" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/googleads/swift-package-manager-google-mobile-ads.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 11.0.0;
+			};
+		};
+		A1B2C3D4E5F60718293A4B05 /* GoogleSignIn */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1B2C3D4E5F60718293A4B04 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */;
+			productName = GoogleSignIn;
+		};
+		A1B2C3D4E5F60718293A4B07 /* FacebookLogin */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1B2C3D4E5F60718293A4B06 /* XCRemoteSwiftPackageReference "facebook-ios-sdk" */;
+			productName = FacebookLogin;
+		};
+		A1B2C3D4E5F60718293A4B08 /* FacebookCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = A1B2C3D4E5F60718293A4B06 /* XCRemoteSwiftPackageReference "facebook-ios-sdk" */;
+			productName = FacebookCore;
+		};
+		B1C2D3E4F5061728394A5B61 /* GoogleMobileAds */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B1C2D3E4F5061728394A5B60 /* XCRemoteSwiftPackageReference "swift-package-manager-google-mobile-ads" */;
+			productName = GoogleMobileAds;
+		};
+		6758C0706E667702FF5F4071 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
+			};
+			buildConfigurationList = 7EF2517A8FE63F4681EC5EEA /* Build configuration list for PBXProject */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (en);
+			mainGroup = 518DA81DB9B99529C0C0AEBE;
+			packageReferences = (
+				F1A2B3C4D5E6F708192A3B4C /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				A1B2C3D4E5F60718293A4B04 /* XCRemoteSwiftPackageReference "GoogleSignIn-iOS" */,
+				A1B2C3D4E5F60718293A4B06 /* XCRemoteSwiftPackageReference "facebook-ios-sdk" */,
+				B1C2D3E4F5061728394A5B60 /* XCRemoteSwiftPackageReference "swift-package-manager-google-mobile-ads" */,
+			);
+			productRefGroup = 547D009064F7C3F13BEF3460 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				6FDE16AB6CE6423157A60739 /* SWISH */,
+			);
+		};
+		7EF2517A8FE63F4681EC5EEA /* Build configuration list for PBXProject */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1745D06812503B910DFAAD2 /* Debug */,
+				77FA931884A45945B0D13E28 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F2F62AAE534BA46EC59716F3 /* Build configuration list for PBXNativeTarget "SWISH" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B799804BBAE9AA215BBA681D /* Debug */,
+				60C24143878A3E46F92118BB /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1745D06812503B910DFAAD2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+			};
+			name = Debug;
+		};
+		77FA931884A45945B0D13E28 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		B799804BBAE9AA215BBA681D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = SWISH/SWISH.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = SWISH/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = com.swishgame.arcade;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1";
+			};
+			name = Debug;
+		};
+		60C24143878A3E46F92118BB /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = SWISH/SWISH.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = "";
+				INFOPLIST_FILE = SWISH/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				PRODUCT_BUNDLE_IDENTIFIER = com.swishgame.arcade;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1";
+			};
+			name = Release;
+		};
+	};
+	rootObject = 6758C0706E667702FF5F4071 /* Project object */;
+}
