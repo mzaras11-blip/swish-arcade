@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>CLIENT_ID</key>
+	<string>652966312456-jcks6p2v085i0bsrsqcc4h31f46pgaa4.apps.googleusercontent.com</string>
+	<key>REVERSED_CLIENT_ID</key>
+	<string>com.googleusercontent.apps.652966312456-jcks6p2v085i0bsrsqcc4h31f46pgaa4</string>
+	<key>ANDROID_CLIENT_ID</key>
+	<string>652966312456-al1oo9mg6rrq3k54h8da0j23livfdt9o.apps.googleusercontent.com</string>
 	<key>API_KEY</key>
 	<string>AIzaSyClNT9Ln77WKcnXhOa-i529JBSqpTZwQHc</string>
 	<key>GCM_SENDER_ID</key>
@@ -9,7 +15,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.swishgame.app</string>
+	<string>com.swishgame.arcade</string>
 	<key>PROJECT_ID</key>
 	<string>swish-crossword-battle</string>
 	<key>STORAGE_BUCKET</key>
@@ -25,10 +31,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:652966312456:ios:89d728f13f44bdd025afbd</string>
-	<key>CLIENT_ID</key>
-	<string>652966312456-4pdnsanu0rlr8f76krjcgq39ab9allp4.apps.googleusercontent.com</string>
-	<key>REVERSED_CLIENT_ID</key>
-	<string>com.googleusercontent.apps.652966312456-4pdnsanu0rlr8f76krjcgq39ab9allp4</string>
+	<string>1:652966312456:ios:84c11caa3598653425afbd</string>
 </dict>
 </plist>

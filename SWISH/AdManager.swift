@@ -28,9 +28,9 @@ final class AdManager: NSObject, ObservableObject {
     static let shared = AdManager()
 
     // MARK: Production ad units (AdMob account mzaras11@gmail.com)
-    private let rewardedAdUnitID = "ca-app-pub-9461680459080238/3053668544"
-    private let interstitialAdUnitID = "ca-app-pub-9461680459080238/9603599175"
-    let bannerAdUnitID = "ca-app-pub-9461680459080238/8110554105"
+    private let rewardedAdUnitID = "ca-app-pub-9461680459080238/4229002468"
+    private let interstitialAdUnitID = "ca-app-pub-9461680459080238/1821817623"
+    let bannerAdUnitID = "ca-app-pub-9461680459080238/6802360769"
 
     @Published var rewardedReady = false
     @Published var showingMockAd = false

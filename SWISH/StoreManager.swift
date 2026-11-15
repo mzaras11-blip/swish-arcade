@@ -12,7 +12,7 @@ import StoreKit
 /// through MainActor.run so this compiles cleanly under Swift 5.
 final class StoreManager: ObservableObject {
     static let shared = StoreManager()
-    static let removeAdsID = "com.swishgame.app.remove_ads"
+    static let removeAdsID = "com.swishgame.arcade.remove_ads"
 
     @Published var hasRemoveAds = false
     @Published var removeAdsProduct: Product?

@@ -71,7 +71,7 @@ appear so the whole flow is testable with zero setup.
 
 1. In App Store Connect, create an in-app purchase:
    - Type: **Non-consumable**
-   - Product ID: `com.swishgame.app.remove_ads` (must match
+   - Product ID: `com.swishgame.arcade.remove_ads` (must match
      `StoreManager.removeAdsID` exactly)
    - Price: pick a tier (e.g. $4.99)
 2. Sign the **Paid Apps** agreement in App Store Connect (required before any

@@ -23,14 +23,14 @@
 			<string>com.googleusercontent.apps.placeholder</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.652966312456-4pdnsanu0rlr8f76krjcgq39ab9allp4</string>
+				<string>com.googleusercontent.apps.652966312456-jcks6p2v085i0bsrsqcc4h31f46pgaa4</string>
 			</array>
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>3</string>
+	<string>4</string>
 	<key>GADApplicationIdentifier</key>
-	<string>ca-app-pub-9461680459080238~4259948162</string>
+	<string>ca-app-pub-9461680459080238~3414614247</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<key>LSApplicationQueriesSchemes</key>

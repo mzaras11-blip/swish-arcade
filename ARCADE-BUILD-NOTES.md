@@ -76,14 +76,15 @@ the loading/mascot/music gaps.
   compile check.
 
 ## Wrap-time list (before this ships as its own product)
-1. **Firebase**: register a separate iOS app for com.swishgame.arcade (in the
-   existing project, per the current direction) and drop in its own
-   GoogleService-Info.plist; until then the app talks to Firebase as the
-   S.W.I.S.H app registration, and the Google sign-in URL scheme in
-   Info.plist is S.W.I.S.H's.
-2. **AdMob**: create an ARCADE AdMob app + ad units; replace
-   GADApplicationIdentifier and the unit IDs in AdManager.swift (currently
-   S.W.I.S.H's — ads would credit S.W.I.S.H's account).
+1. **Firebase**: ✅ DONE in build 4 — ARCADE has its own iOS app
+   registration in the existing project; its GoogleService-Info.plist
+   (BUNDLE_ID com.swishgame.arcade) is in the project and the Google
+   sign-in URL scheme in Info.plist is ARCADE's own REVERSED_CLIENT_ID.
+2. **AdMob**: ✅ DONE in build 4 — ARCADE has its own AdMob app + banner /
+   interstitial / rewarded units; GADApplicationIdentifier and the
+   AdManager.swift unit IDs are ARCADE's. (AdMob shows the app as
+   "Requires review / limited ad serving" until the store listing is
+   linked — that lifts once ARCADE is published.)
 3. **Invite/share URL**: APP_STORE_URL in the web core still points at the
    S.W.I.S.H App Store page; point it at ARCADE's listing once live.
 4. **Store metadata**: listing name already shortened in ASC; consider
@@ -93,6 +94,11 @@ the loading/mascot/music gaps.
    cover the new bundle ID.
 6. House promos in the web build promote S.W.I.S.H offers (Remove Ads,
    coin packs) — decide ARCADE's own promo rotation once its IAP exists.
+   **IAP alignment (build 4)**: the Remove Ads product ID in code is now
+   ARCADE's own — `com.swishgame.arcade.remove_ads`
+   (StoreManager.removeAdsID; README go-live section updated to match).
+   The ASC product with that exact ID is being created in parallel; the
+   inherited S.W.I.S.H ID was a dead purchase under this bundle.
 
 ---
 
@@ -173,3 +179,70 @@ The native delegation, the web core, and everything else are untouched.
   as above); web core byte-unchanged from build 2 (index.html md5
   273222a359b90948997bac41d0101ca2) and its checks still pass
   (node --check on both script blocks OK; tools/validate.py exit 0).
+
+## Build 4 (v1.0, CFBundleVersion 4) — own AdMob, own Firebase, own IAP ID, video-title wordmark
+
+The wrap-time identity swap, plus the wordmark Michael asked for after
+playing build 2. Web core md5 3746bfe847a8d75f6d657277af3f52d4.
+
+- **AdMob (ARCADE's own, created 2026-11-15)**: Info.plist
+  GADApplicationIdentifier → `ca-app-pub-9461680459080238~3414614247`;
+  AdManager.swift → banner `…/6802360769`, interstitial `…/1821817623`,
+  rewarded `…/4229002468`. Placements, formats and the house-promo
+  rotation are untouched. Project-wide grep: zero occurrences of the old
+  app ID or S.W.I.S.H unit IDs remain in code.
+- **Firebase (ARCADE's own registration)**: GoogleService-Info.plist
+  replaced with the plist registered for com.swishgame.arcade in the
+  same project (GOOGLE_APP_ID 1:652966312456:ios:84c11caa3598653425afbd,
+  BUNDLE_ID verified com.swishgame.arcade after the swap). Info.plist
+  Google sign-in URL scheme → ARCADE's REVERSED_CLIENT_ID
+  (com.googleusercontent.apps.652966312456-jcks6p2v085i0bsrsqcc4h31f46pgaa4);
+  grep confirms no reference to the old reversed client ID remains.
+- **Remove Ads product ID**: `com.swishgame.app.remove_ads` →
+  `com.swishgame.arcade.remove_ads` in StoreManager.swift (the only code
+  occurrence) and in README.md's go-live section, which documents that
+  the ASC product ID must match the code. The `swish_remove_ads`
+  UserDefaults keys are internal storage keys, not the product ID —
+  unchanged. (app-store-listing.md still names the old ID — that file is
+  S.W.I.S.H's own listing doc, where the old ID is correct; it's the
+  stale copy flagged in wrap-time item 4.)
+- **Wordmark restyle** (menu `.logo` + loading `.load-title`, CSS only in
+  the ARCADE skin + a `data-text="S.W.I.S.H"` attribute on each):
+  matched to Michael's ad-video title reference
+  (~/workspace/goals/s-w-i-s-h-ios-game/files/swish-title-reference-video.jpg).
+  Construction: the element's own text is now a solid deep-navy
+  (#142069) copy with a 0.15em -webkit-text-stroke — the chunky outline;
+  an ::after overlay (content: attr(data-text)) paints the gradient fill
+  on top (linear, #ff5a1f top → #ff7d00 → #ff9e00 → #ffb300 → #ffd21f
+  bottom), leaving an even navy rim; drop-shadow filters add the blue
+  glow (rgba(64,156,255,.55)) and a hard navy depth ledge. The old dull
+  olive-brown gradient + brown stroke are gone. "CROSSWORD BATTLE"
+  (.logo-sub / .lt-sub) is now white→purple gradient bubble text
+  (#ffffff → #e9d5ff → #c084fc → #8b5cf6) with a thin navy stroke,
+  riding a gold swoosh (::before: gold gradient ellipse, slight -1.3°
+  tilt, tucked under the letters' lower third). The sub spans are
+  width: fit-content + auto margins so the swoosh hugs the text width
+  instead of the full screen — that was the one fix from the visual
+  check below. The ARCADE pill/line under the title is unchanged, as are
+  all branding strings.
+- **Visual check (new this build)**: rendered in a standalone Chromium
+  headless shell (Playwright, installed in a /tmp venv — the managed
+  /opt/meta-chromium stays policy-locked) at 420×900 and eyeballed
+  against the reference, loading screen + main menu. First pass caught
+  the swoosh spanning the full screen width; fixed via fit-content
+  above and re-shot. Remaining deltas vs the reference are CSS limits,
+  stated plainly: the reference letters are hand-drawn with a slight
+  per-letter arc and a pale-blue inner bevel inside the outline; the
+  app's are straight-set in the existing rounded display stack with a
+  flat navy rim, and the sub keeps the app's all-caps "CROSSWORD
+  BATTLE" string. Gradient direction, outline weight/color, glow, and
+  the purple-on-gold-swoosh sub all read as the reference treatment.
+  Michael's eye on TestFlight remains the deciding gate.
+- **Verification**: node --check OK on both script blocks;
+  tools/validate.py 12/12 (exit 0); deadrack-sim ALL CHECKS PASSED;
+  rush-sim 48 checks, 0 failed. Inventory parity vs build 3: element
+  IDs 225 = 225 with identical sorted-ID hash (additive only — the two
+  data-text attributes); emoji multiset identical (127, same hash —
+  zero new emoji); no JS functions added or removed (CSS + attributes
+  only in the web core). Both plists parse; Info.plist CFBundleVersion
+  3 → 4, short version stays 1.0.
