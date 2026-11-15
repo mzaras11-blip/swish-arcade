@@ -140,3 +140,36 @@ Version stays 1.0; CFBundleVersion 1 → 2. Web core md5 273222a3… (615,503 B)
   step, hats on every 8th. Inventory vs build 1: element IDs 225 = 225
   (none added/removed); functions +2, none removed (dockTL, kick);
   emoji multiset identical (127 = 127, zero new).
+
+## Build 3 (v1.0, CFBundleVersion 3) — in-app music hype
+
+Michael's call after build 2: the hype has to reach the music he actually
+hears in the app. One change only — the bundled wav the native bridge
+loops (`SWISH/Resources/web/music.wav`, loaded by NativeAudioBridge in
+SWISHApp.swift via Bundle.main, subdirectory "web", numberOfLoops = -1).
+The native delegation, the web core, and everything else are untouched.
+
+- **Processing (ffmpeg, two passes on the original file)**:
+  1. `atempo=1.10` (pitch-preserving tempo up) + gentle compression
+     `acompressor=threshold=-20dB:ratio=2:attack=10:release=250`.
+  2. Makeup/normalize: `volume=6.5dB` + `alimiter=limit=0.891:level=false`
+     (limiter is a safety net at ≈ -1 dBFS).
+- **Before → after**:
+  - Duration: 30.00 s → 27.25 s (exactly 30 / 1.10).
+  - Tempo (envelope-autocorrelation estimate): ≈120 BPM → ≈130 BPM.
+  - Peak: -3.1 dBFS → -1.0 dBFS (no clipped samples; nothing ≥ -0.9 dBFS
+    plateau — limiter/peak verified in samples, peak sample -1.04 dBFS).
+  - Mean level: -16.0 dB → -14.1 dB (+1.9 dB loudness lift, no clipping).
+  - Format unchanged: WAV PCM s16le, 22050 Hz, mono; same filename/path,
+    so SWISHApp.swift needs no change. 1,323,044 → 1,201,836 bytes.
+- **Loop seam**: the original is a silence-bridged loop — it tapers to
+  digital zero over its last ~50 ms and starts from ~zero, so the wrap is
+  click-free by design. Verified the property survived processing:
+  last sample → first sample jump = 0; tail still tapers smoothly to zero
+  over the final ~100 ms (10 ms RMS bins descend 1594 → 0) and the head
+  ramps up from near zero. No crossfade or trim was needed; no seam fix
+  applied beyond preserving the original fade.
+- **Verification**: ffprobe decodes the new file cleanly (27.25 s, format
+  as above); web core byte-unchanged from build 2 (index.html md5
+  273222a359b90948997bac41d0101ca2) and its checks still pass
+  (node --check on both script blocks OK; tools/validate.py exit 0).
