@@ -93,3 +93,50 @@ the loading/mascot/music gaps.
    cover the new bundle ID.
 6. House promos in the web build promote S.W.I.S.H offers (Remove Ads,
    coin packs) — decide ARCADE's own promo rotation once its IAP exists.
+
+---
+
+# Build 2 (2026-11-15) — icon, avatars, mascot cutout, safe area, dock, music hype
+
+Version stays 1.0; CFBundleVersion 1 → 2. Web core md5 273222a3… (615,503 B).
+
+- **Icon**: AppIcon-1024.png replaced with the v2 art (title pulled inside the
+  frame; md5 bd81ed87…). The appiconset has a single 1024 slot — no other
+  slots existed to update.
+- **Mascot cutout**: the rectangular poster crop is gone. New companion art is
+  a transparent-background cutout of the same figure (rembg: union of
+  isnet-general-use + u2net mattes over the original RGB, hand-inspected —
+  full figure incl. legs and left arm, no background remnants), encoded as
+  560×527 WebP with alpha (45,378 B). It replaces the old URI in all three
+  placements (start screen, loading screen, pointer companion); the
+  matchmaking mascot inherits it via its src copy. The native
+  `Mascot.imageset` still holds the rectangular poster crop — unused by the
+  web layer; swap it if a native surface ever shows it.
+- **Avatars**: two 256×256 WebP assets embedded in the web core. PLAYER =
+  mascot face crop from the cutout on the YOU-panel blue; RIVAL = the same
+  face hue-shifted (blue fur → orange-red, red cap → deep purple) on the
+  CPU-panel maroon. Shown as 34px gold-ringed circles in the score panels'
+  name rows: YOU panel = PLAYER, CPU panel = RIVAL (CPU name row is
+  row-reversed so its avatar sits on the outer edge). Same panels serve
+  normal games, Rush VS bars, and Split Screen (P1 = PLAYER, P2 = RIVAL).
+- **Safe area**: #gameScreen top padding is now
+  `calc(12px + env(safe-area-inset-top))` — the game header no longer sits
+  under the iOS status bar.
+- **Companion dock**: while the game screen is up, the pointer companion
+  docks straddling the top-right corner of the player's score panel
+  (new `dockTL()` in the companion IIFE) instead of trailing the fingertip,
+  so it never covers board or rack tiles. Off the game screen it trails
+  the pointer as before; tap-bounce and win-spin are untouched.
+- **Music hype (Web Audio path)**: STEP_S 0.20 → 0.176 s (~75 → ~85 BPM);
+  added a synthesized kick (`kick()`) on every beat, 8th-note hats with an
+  offbeat accent (was a lone offbeat hat), and a bass root pulse filling
+  the BASS rests. Same MEL/BASS lines, same API, same volumes for melody
+  and bass; SFX keep their own bus. NOTE: in the iOS app, music delegates
+  to the native bridge playing the bundled music.wav — this pass changes
+  the Web Audio groove (browser/web play); the in-app wav is unchanged.
+- **Verification**: node --check OK on both script blocks; validate.py
+  12/12; deadrack-sim ALL CHECKS PASSED; rush-sim 48/48; music smoke test
+  (stubbed Web Audio): kick gaps exactly 0.704 s, bass sounds on every
+  step, hats on every 8th. Inventory vs build 1: element IDs 225 = 225
+  (none added/removed); functions +2, none removed (dockTL, kick);
+  emoji multiset identical (127 = 127, zero new).
