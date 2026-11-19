@@ -2712,6 +2712,7 @@
             showToast("Word complete! +" + bonusPts);
           }
         }
+        try { ArcadeJuice.place(cell, G.current); } catch (e) {}
       }
 
       function undoLast() {
@@ -2838,6 +2839,7 @@
         if (G.blueHit && G.turnPoints > 0) {
           G.scores[G.current] += G.turnPoints;
           Fx.bonusBurst(Array.from(G.turnBlueCells), G.current);
+          try { ArcadeJuice.banner("DOUBLE WORD SCORE!", G.current); } catch (e) {}
           showToast("Blue square — turn score doubled!");
         }
         try { Juice.noteTurn(G.current, G.turnPoints > 0); } catch (e) {}
@@ -3674,6 +3676,7 @@ if (G.live) {
           $("ptsYou").textContent = G.scores[0];
           $("ptsCpu").textContent = G.mode === "practice" ? "–" : G.scores[1];
         }
+        try { ArcadeJuice.sync(); } catch (e) {}
         $("scoreYou").classList.toggle("active-you", !G.gameOver && G.current === 0);
         $("scoreCpu").classList.toggle("active-cpu", !G.gameOver && G.current === 1);
         if (G.mode === "rush" && G.rush) {
@@ -3980,6 +3983,7 @@ if (G.live) {
           if (reviewHandler) { try { reviewHandler.postMessage("promptAfterWin"); } catch (e) { /* best effort */ } }
         }
         try { Juice.gameOver(); } catch (e) {}
+        try { ArcadeJuice.gameOver(); } catch (e) {}
         setTimeout(() => { $("overModal").hidden = false; Ads.showBanner(); }, 650);
       }
 
@@ -7806,6 +7810,371 @@ const okHP = await shareInviteText(text);
           }).observe(over, { attributes: true, attributeFilter: ["hidden"] });
         }
       })();
+    </script>
+    <style>
+      /* ================= ARCADE JUICE (build 6 add-on) =================
+         Presentation-only layer over the shipped game: fly-to-score
+         bursts, combo sparkles, banner sweeps, score pulse, mascot
+         excitement, a win confetti volley. No game state is written;
+         every overlay is pointer-events:none. STORE.animOn and
+         prefers-reduced-motion quiet it (see the script block). */
+
+      /* Honed placement pop: same .juice-pop hook the game already
+         fires on every placement (renderBoard), peak scale raised
+         1.16 -> 1.30 with a spring overshoot and a stronger glow
+         ring. A later @keyframes of the same name wins, so the
+         original block is untouched. */
+      @keyframes juiceCellPop {
+        0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 214, 10, 0); }
+        38% { transform: scale(1.3); box-shadow: 0 0 0 3px rgba(255, 214, 10, 0.95), 0 0 22px rgba(255, 214, 10, 0.8); }
+        62% { transform: scale(0.96); box-shadow: 0 0 0 1px rgba(255, 214, 10, 0.5), 0 0 10px rgba(255, 214, 10, 0.4); }
+        100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 214, 10, 0); }
+      }
+
+      #ajLayer { position: fixed; inset: 0; z-index: 118; pointer-events: none; overflow: hidden; }
+      .aj-fly {
+        position: fixed; pointer-events: none; white-space: nowrap;
+        font-weight: 900; font-size: 26px; line-height: 1;
+        transform: translate(-50%, -50%);
+        text-shadow: 0 2px 6px rgba(0, 0, 0, .45), 0 0 14px rgba(255, 255, 255, .35);
+      }
+      .aj-fly.you { color: #3A9BEA; }
+      .aj-fly.cpu { color: #F2607E; }
+      .aj-spark {
+        position: fixed; pointer-events: none;
+        width: 9px; height: 9px; border-radius: 3px;
+        transform: translate(-50%, -50%);
+      }
+      .aj-tag {
+        position: fixed; pointer-events: none; white-space: nowrap;
+        font-weight: 900; font-size: 22px; line-height: 1; color: #FFD60A;
+        transform: translate(-50%, -50%);
+        text-shadow: 0 0 12px rgba(247, 162, 59, .9), 0 2px 6px rgba(0, 0, 0, .5);
+        animation: ajTagPop .7s cubic-bezier(.34, 1.56, .64, 1) both;
+      }
+      @keyframes ajTagPop {
+        0% { opacity: 0; transform: translate(-50%, -50%) scale(.3) rotate(-8deg); }
+        35% { opacity: 1; transform: translate(-50%, -70%) scale(1.35) rotate(3deg); }
+        100% { opacity: 0; transform: translate(-50%, -130%) scale(1); }
+      }
+      .aj-confetti { position: fixed; pointer-events: none; width: 10px; height: 14px; border-radius: 2px; }
+
+      .score .pts.aj-pulse, #ptsYou.aj-pulse, #ptsCpu.aj-pulse { display: inline-block; animation: ajPulse .45s cubic-bezier(.34, 1.56, .64, 1); }
+      @keyframes ajPulse {
+        0% { transform: scale(1); }
+        40% { transform: scale(1.28); }
+        70% { transform: scale(.94); }
+        100% { transform: scale(1); }
+      }
+
+      #gameScreen.aj-shake { animation: ajShake .18s linear; }
+      @keyframes ajShake {
+        0% { transform: translate(0, 0); }
+        25% { transform: translate(2px, -1px); }
+        50% { transform: translate(-2px, 1px); }
+        75% { transform: translate(1px, 0); }
+        100% { transform: translate(0, 0); }
+      }
+
+      #ajBanner {
+        position: fixed; left: 0; right: 0; top: 16%; z-index: 122;
+        display: flex; justify-content: center; pointer-events: none;
+        transform: translateX(-110%) rotate(-1.5deg);
+      }
+      #ajBanner[hidden] { display: none; }
+      #ajBanner .aj-banner-in {
+        padding: 12px 34px; border-radius: 10px;
+        background: linear-gradient(90deg, #9C6BE3, #F2607E 55%, #F7A23B);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, .35), inset 0 2px 0 rgba(255, 255, 255, .5);
+        color: #fff; font-size: 30px; font-weight: 900; letter-spacing: .05em; white-space: nowrap;
+        text-shadow: 0 2px 0 rgba(0, 0, 0, .18), 0 0 16px rgba(255, 255, 255, .35);
+      }
+      #ajBanner.cpu .aj-banner-in { background: linear-gradient(90deg, #3A9BEA, #9C6BE3 60%, #F2607E); }
+      #ajBanner.show { animation: ajBannerSweep 1.6s cubic-bezier(.22, .9, .3, 1) both; }
+      @keyframes ajBannerSweep {
+        0% { transform: translateX(-110%) rotate(-1.5deg); opacity: 1; }
+        18% { transform: translateX(0) rotate(-1.5deg); }
+        26% { transform: translateX(0) rotate(-1.5deg) scale(1.06); }
+        34% { transform: translateX(0) rotate(-1.5deg) scale(1); }
+        82% { transform: translateX(0) rotate(-1.5deg); opacity: 1; }
+        100% { transform: translateX(110%) rotate(-1.5deg); opacity: .9; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .aj-tag, .score .pts.aj-pulse, #ptsYou.aj-pulse, #ptsCpu.aj-pulse, #gameScreen.aj-shake, #ajBanner.show { animation: none !important; }
+      }
+    </style>
+    <script>
+      /* ================= ARCADE JUICE (build 6 add-on) =================
+         Presentation only: this layer reads game state, never writes
+         it, and adds no audio (the game's own SFX calls already fire
+         at these events). The game calls in through try/catch hooks,
+         the same contract as Juice/Fx:
+           ArcadeJuice.place(cell, by)  — end of lockLetter()
+           ArcadeJuice.sync()           — renderHud(), silent re-baseline
+           ArcadeJuice.banner(text, by) — endTurn() blue-square double
+           ArcadeJuice.gameOver()       — showGameOver(), by Juice.gameOver()
+         STORE.animOn is the player's off switch; prefers-reduced-motion
+         (via SwishFx.reduced) swaps motion for one static highlight. */
+      const ArcadeJuice = (() => {
+        const COLORS = ["#F2607E", "#3A9BEA", "#F7A23B", "#4CC96B", "#9C6BE3", "#FFD60A"];
+        const animOn = () => { try { return STORE.animOn !== false; } catch (e) { return true; } };
+        const reduced = () => { try { return !!(window.SwishFx && window.SwishFx.reduced()); } catch (e) { return false; } };
+        const $id = (i) => document.getElementById(i);
+        const game = () => { try { return (typeof G !== "undefined") ? G : null; } catch (e) { return null; } };
+
+        let seenG = null;
+        let lastScores = [0, 0];
+        let lastCombo = [1, 1];
+        let seenWords = new Set();
+
+        function rebaseline(g) {
+          lastScores = [g.scores[0], g.scores[1]];
+          lastCombo = (g.rush && g.rush.combo) ? [g.rush.combo[0] || 1, g.rush.combo[1] || 1] : [1, 1];
+          seenWords = new Set(g.completedWords || []);
+        }
+        function cwSize(g) { try { return (g.completedWords && g.completedWords.size != null) ? g.completedWords.size : (g.completedWords || []).length; } catch (e) { return 0; } }
+        function layer() {
+          let l = $id("ajLayer");
+          if (!l) {
+            l = document.createElement("div");
+            l.id = "ajLayer";
+            l.setAttribute("aria-hidden", "true");
+            document.body.appendChild(l);
+          }
+          return l;
+        }
+        function inGame() {
+          const gs = $id("gameScreen");
+          return !!gs && !gs.hidden;
+        }
+        function cellRect(cell) {
+          try {
+            const el = (typeof cellEls !== "undefined") ? cellEls[cell] : null;
+            if (!el) return null;
+            const r = el.getBoundingClientRect();
+            return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+          } catch (e) { return null; }
+        }
+        function pulse(by) {
+          const pts = $id(by === 0 ? "ptsYou" : "ptsCpu");
+          if (!pts) return;
+          pts.classList.remove("aj-pulse");
+          void pts.offsetWidth;
+          pts.classList.add("aj-pulse");
+          setTimeout(() => pts.classList.remove("aj-pulse"), 500);
+        }
+
+        /* "+N" burst: spawns at the placed tile, arcs to the player's
+           score panel, pulses the score number on landing (Juice's
+           count-up tween runs alongside, as shipped). */
+        function fly(from, by, amount) {
+          const panel = $id(by === 0 ? "scoreYou" : "scoreCpu");
+          if (!from || !panel) { pulse(by); return; }
+          const pr = panel.getBoundingClientRect();
+          const dx = (pr.left + pr.width / 2) - from.x;
+          const dy = (pr.top + pr.height / 2) - from.y;
+          const f = document.createElement("div");
+          f.className = "aj-fly " + (by === 0 ? "you" : "cpu");
+          f.textContent = "+" + amount;
+          f.style.left = from.x + "px";
+          f.style.top = from.y + "px";
+          layer().appendChild(f);
+          let flown = false;
+          if (layer().childElementCount > 70) { f.remove(); pulse(by); return; }
+          try {
+            const anim = f.animate([
+              { transform: "translate(-50%, -50%) scale(.6)", opacity: 0 },
+              { transform: "translate(-50%, -50%) scale(1.25)", opacity: 1, offset: .18 },
+              { transform: "translate(calc(-50% + " + (dx * .55) + "px), calc(-50% + " + (dy * .55) + "px)) scale(1.05)", opacity: 1, offset: .62 },
+              { transform: "translate(calc(-50% + " + dx + "px), calc(-50% + " + dy + "px)) scale(.8)", opacity: .9 }
+            ], { duration: 620, easing: "cubic-bezier(.3, .7, .4, 1)" });
+            anim.onfinish = () => { flown = true; f.remove(); pulse(by); };
+          } catch (e) { /* WAAPI unavailable: static fade fallback below */ }
+          setTimeout(() => { if (!flown) { f.remove(); pulse(by); } }, 900);
+        }
+
+        /* Combo explosion: brand-color sparkles bursting at the tile. */
+        function sparks(at, n) {
+          if (!at) return;
+          const L = layer();
+          if (L.childElementCount > 70) return;
+          for (let i = 0; i < n; i++) {
+            if (L.childElementCount > 80) break;
+            const s = document.createElement("span");
+            s.className = "aj-spark";
+            s.style.left = at.x + "px";
+            s.style.top = at.y + "px";
+            s.style.background = COLORS[(Math.random() * COLORS.length) | 0];
+            L.appendChild(s);
+            const ang = Math.random() * Math.PI * 2;
+            const dist = 26 + Math.random() * 42;
+            const dx = Math.cos(ang) * dist;
+            const dy = Math.sin(ang) * dist - 10;
+            try {
+              const a = s.animate([
+                { transform: "translate(-50%, -50%) scale(1) rotate(0deg)", opacity: 1 },
+                { transform: "translate(calc(-50% + " + dx + "px), calc(-50% + " + dy + "px)) scale(.4) rotate(" + (((Math.random() * 160) - 80) | 0) + "deg)", opacity: 0 }
+              ], { duration: 480 + Math.random() * 220, easing: "cubic-bezier(.2, .7, .3, 1)" });
+              a.onfinish = () => s.remove();
+            } catch (e) { /* fallback: timeout cleanup below */ }
+            setTimeout(() => s.remove(), 900);
+          }
+        }
+        function tag(at, text) {
+          if (!at) return;
+          const t = document.createElement("div");
+          t.className = "aj-tag";
+          t.textContent = text;
+          t.style.left = at.x + "px";
+          t.style.top = at.y + "px";
+          layer().appendChild(t);
+          setTimeout(() => t.remove(), 750);
+        }
+        function shake() {
+          const gs = $id("gameScreen");
+          if (!gs) return;
+          gs.classList.remove("aj-shake");
+          void gs.offsetWidth;
+          gs.classList.add("aj-shake");
+          setTimeout(() => gs.classList.remove("aj-shake"), 220);
+        }
+
+        /* "DOUBLE WORD SCORE"-style banner: a gradient bar that
+           sweeps in, slams, holds, and sweeps out. One at a time;
+           calls inside the cooldown are dropped, never queued. */
+        let bannerTimer = 0, bannerLast = 0;
+        function banner(text, by) {
+          if (!animOn() || reduced() || !inGame()) return;
+          const now = performance.now();
+          if (now - bannerLast < 900) return;
+          bannerLast = now;
+          let box = $id("ajBanner");
+          if (!box) {
+            box = document.createElement("div");
+            box.id = "ajBanner";
+            box.setAttribute("aria-hidden", "true");
+            box.innerHTML = "<div class=\"aj-banner-in\"></div>";
+            document.body.appendChild(box);
+          }
+          box.className = by === 1 ? "cpu" : "you";
+          box.querySelector(".aj-banner-in").textContent = text;
+          box.hidden = false;
+          box.classList.remove("show");
+          void box.offsetWidth;
+          box.classList.add("show");
+          if (bannerTimer) clearTimeout(bannerTimer);
+          bannerTimer = setTimeout(() => { box.hidden = true; box.classList.remove("show"); }, 1650);
+        }
+
+        /* Mascot excitement: the companion (and your panel avatar)
+           bounce using the game's own .buddy-bounce class. */
+        function excite() {
+          document.querySelectorAll("#mascotCursor img, #scoreYou .panel-avatar").forEach((im) => {
+            im.classList.remove("buddy-bounce");
+            void im.offsetWidth;
+            im.classList.add("buddy-bounce");
+            setTimeout(() => im.classList.remove("buddy-bounce"), 520);
+          });
+        }
+
+        /* Win complement: a DOM confetti volley in brand colors,
+           fired after Juice's canvas bursts (never instead of). */
+        function confettiVolley() {
+          if (!animOn() || reduced() || !inGame()) return;
+          const L = layer();
+          const cx = window.innerWidth / 2;
+          for (let i = 0; i < 26; i++) {
+            const p = document.createElement("span");
+            p.className = "aj-confetti";
+            p.style.background = COLORS[(Math.random() * COLORS.length) | 0];
+            p.style.left = (cx + (Math.random() - .5) * window.innerWidth * .7) + "px";
+            p.style.top = "-20px";
+            L.appendChild(p);
+            try {
+              const a = p.animate([
+                { transform: "translateY(0) rotate(0deg)", opacity: 1 },
+                { transform: "translate(" + (((Math.random() - .5) * 120) | 0) + "px, " + Math.round(window.innerHeight * .55) + "px) rotate(" + (((Math.random() * 540) - 270) | 0) + "deg)", opacity: 0 }
+              ], { duration: 1300 + Math.random() * 700, delay: Math.random() * 250, easing: "cubic-bezier(.2, .6, .4, 1)" });
+              a.onfinish = () => p.remove();
+            } catch (e) { /* fallback: timeout cleanup below */ }
+            setTimeout(() => p.remove(), 2400);
+          }
+        }
+
+        /* ----- hooks (called from the game, always in try/catch) ----- */
+
+        /* Every locked letter: turn-based place, Rush place, Rush CPU
+           place all funnel through lockLetter, so one hook covers all
+           local placements. Deltas are measured against the baselines
+           sync() maintains, so turn bonuses (+5, blue-square double)
+           are never misattributed to a placement. */
+        function place(cell, by) {
+          const g = game();
+          if (!g) return;
+          if (seenG !== g) { seenG = g; rebaseline(g); return; }
+          if (cwSize(g) < seenWords.size) { rebaseline(g); return; }
+          const gained = g.scores[by] - lastScores[by];
+          const newWords = [];
+          try {
+            (g.completedWords || []).forEach((wi) => { if (!seenWords.has(wi)) newWords.push(wi); });
+            seenWords = new Set(g.completedWords || []);
+          } catch (e) {}
+          const comboNow = (g.mode === "rush" && g.rush && g.rush.combo) ? (g.rush.combo[by] || 1) : 1;
+          const comboUp = comboNow > lastCombo[by];
+          lastCombo[by] = comboNow;
+          lastScores[by] = g.scores[by];
+
+          if (!animOn()) return;
+          if (reduced()) {
+            try {
+              const el = (typeof cellEls !== "undefined") ? cellEls[cell] : null;
+              if (el) { el.classList.add("fx-hilite"); setTimeout(() => el.classList.remove("fx-hilite"), 650); }
+            } catch (e) {}
+            return;
+          }
+          if (!inGame()) return;
+          const at = cellRect(cell);
+          if (gained > 0) fly(at, by, gained);
+          if (g.mode === "rush" && comboUp) {
+            sparks(at, 10);
+            if (comboNow >= 2) tag(at, "\u00D7" + comboNow);
+            if (comboNow >= 4 && by === 0) shake();
+          }
+          let bigWord = false;
+          newWords.forEach((wi) => {
+            let len = 0;
+            try { len = g.puzzle.words[wi].a.length; } catch (e) {}
+            if (len >= 7) { bigWord = true; banner("MEGA WORD!", by); }
+          });
+          if (by === 0 && (bigWord || (comboUp && comboNow >= 3))) excite();
+        }
+
+        /* renderHud runs after every render (placements, end of turn,
+           restores): silently absorb score/combo/word changes that
+           did not come through place(), e.g. the all-5-letters +5 and
+           the blue-square turn doubling. */
+        function sync() {
+          const g = game();
+          if (!g) return;
+          if (seenG !== g) { seenG = g; rebaseline(g); return; }
+          lastScores = [g.scores[0], g.scores[1]];
+          if (g.rush && g.rush.combo) lastCombo = [g.rush.combo[0] || 1, g.rush.combo[1] || 1];
+          try { (g.completedWords || []).forEach((wi) => seenWords.add(wi)); } catch (e) {}
+        }
+
+        function gameOver() {
+          const g = game();
+          if (!g || g.winner !== 0 || g.forfeited) return;
+          if (!animOn() || reduced()) return;
+          bannerLast = 0; // the win banner outranks the cooldown
+          setTimeout(() => banner("YOU WIN!", 0), 250);
+          setTimeout(() => { confettiVolley(); excite(); }, 800);
+        }
+
+        return { place, sync, banner, gameOver };
+      })();
+      window.ArcadeJuice = ArcadeJuice;
     </script>
   </body>
 </html>
