@@ -9400,10 +9400,43 @@ const okHP = await shareInviteText(text);
            (flips the session under "auto") and a one-frame silent buffer
            through each context once it runs (the classic unlock).
            Guarded everywhere — a no-op on browsers without the API. */
+        /* ---------------- FIX4c: session aids are browser-only ----------------
+           Build-9 device evidence: in the iOS APP the home-menu music
+           (which played in build 8) is gone. In the app the page does
+           NOT own the audio world: it shares ONE AVAudioSession with
+           the app, the app sets that session to .playback + active at
+           launch (SWISHApp.swift), and menu music is a native
+           AVAudioPlayer looping music.wav, started when Music.start()
+           posts {action:"play"} to the audio bridge on the first tap.
+           The FIX4b aids above reach into that shared session from the
+           page side: the one-shot silent <audio> element IS media
+           playback to WebKit, and when its 0.05 s playback ends —
+           moments after the same first tap started the native player —
+           WebKit tears down the web playback session activation on the
+           shared session, stopping the AVAudioPlayer. The bridge has
+           no interruption recovery and Music.start() latches
+           (started=true), so "play" is never re-sent: music is dead
+           for the whole session, from the first tap, every launch.
+           (The audioSession.type assertions are the same class of
+           page-side session management; where WKWebView exposes the
+           API they act on the same shared session, and they have no
+           purpose in-app — the app already routes natively.)
+           FIX: detect the app exactly as the base game detects it for
+           music (the webkit audio message handler — registered before
+           the game's own capture, which build 8/9 rely on) and keep
+           every session-level aid — routePlayback, the shim, and the
+           silent-buffer warm — browser-only. The FIX4 wrapper + resume
+           poke stay active everywhere: they act on WebAudio contexts
+           only, never reconfigure the shared session, and are the
+           standing in-app SFX unlock fix. In-app, the audio delta vs
+           build 8 is then exactly FIX4 and nothing else. */
         const AC_WRAP = (() => {
           const Orig = window.AudioContext || window.webkitAudioContext;
           if (!Orig) return null;
+          const IN_APP = !!((window.webkit && window.webkit.messageHandlers &&
+                             window.webkit.messageHandlers.audio));
           const routePlayback = () => {
+            if (IN_APP) return; // FIX4c: the app owns the shared session
             try {
               if ("audioSession" in navigator && navigator.audioSession && navigator.audioSession.type !== "playback") {
                 navigator.audioSession.type = "playback";
@@ -9415,7 +9448,7 @@ const okHP = await shareInviteText(text);
             window.addEventListener(t, routePlayback, { capture: true, passive: true }));
           let shimPlayed = false;
           const playShim = () => {
-            if (shimPlayed) return;
+            if (IN_APP || shimPlayed) return; // FIX4c: never play media elements in-app
             shimPlayed = true;
             try {
               const a = document.createElement("audio");
@@ -9449,7 +9482,7 @@ const okHP = await shareInviteText(text);
                   const p = ac.resume();
                   if (p && p.catch) p.catch(() => {});
                 }
-                if (ac.state === "running" && !warmed.has(ac)) {
+                if (!IN_APP && ac.state === "running" && !warmed.has(ac)) {
                   warmed.add(ac);
                   const buf = ac.createBuffer(1, 1, 22050);
                   const src = ac.createBufferSource();
