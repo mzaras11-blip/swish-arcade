@@ -9326,6 +9326,12 @@ const okHP = await shareInviteText(text);
         filter: none !important; backdrop-filter: none !important;
         animation: none !important; transition: none !important;
       }
+      /* FIX4: long usernames (Rush / Split Screen) must not reflow the
+         scoreboard — the scene measures its panel layout from these
+         rects, and a long .who pushed the CPU panel off-screen. The DOM
+         layer is invisible in scene mode; the canvas draws the name. */
+      body.asc-on #gameScreen .score { min-width: 0; }
+      body.asc-on #gameScreen .score .who { overflow: hidden; white-space: nowrap; }
       body.asc-on #board { transform: none !important; }
       body.asc-on .aj-av-wrap { animation: none !important; transform: none !important; }
       body.asc-on #ajLayer, body.asc-on #ajAmbient, body.asc-on #ajBanner,
@@ -9358,6 +9364,107 @@ const okHP = await shareInviteText(text);
         function animOn() { try { return !STORE || STORE.animOn !== false; } catch (e) { return true; } }
         function reduced() { try { return !!(window.SwishFx && SwishFx.reduced && SwishFx.reduced()); } catch (e) { return false; } }
         function inGame() { const gs = $("#gameScreen"); return !!(gs && !gs.hidden && typeof G !== "undefined" && G); }
+
+        /* ---------------- FIX4: WebAudio unlock assist ----------------
+           The base SFX module creates its AudioContext lazily, inside the
+           placement handler, and its ensure() only calls resume() when the
+           state is exactly "suspended". On iOS (WKWebView) a context
+           created in a pointerup/drag chain can stay locked for the whole
+           session, or land in "interrupted" (e.g. when the avatar videos
+           start playing), and ensure() never retries it — placements and
+           word completions then stay silent while the separate music
+           path plays on. Both base modules look the constructor up on
+           window at call time and create their contexts lazily, so
+           wrapping it here (this block runs before any user input)
+           captures every context the game makes; every real gesture then
+           resumes them all, whatever state they are in. Presentation
+           plumbing only — no sound design changes. */
+        /* ---------------- FIX4b: iOS audio-session routing ----------------
+           Device evidence (2026-11-20): the FIX4 build played with NO
+           sound at all in iPhone Safari — music and SFX both — while
+           every instrumented headless run shows both contexts "running"
+           and rendering real audio energy. That combination indicts the
+           one layer JS cannot observe: iOS routes Web Audio to the
+           ambient (ringer) channel by default, so the hardware
+           silent switch mutes the whole page while the contexts report
+           "running" (WebKit bug 237322). The sanctioned lever is the
+           Audio Session API: navigator.audioSession.type = "playback"
+           moves Web Audio onto the media channel, which the switch does
+           not mute. It must be set synchronously inside a user gesture
+           (before the contexts are created/resumed in that gesture) and
+           re-asserted, because WebKit can drop it back to "ambient"
+           after an interruption. The capture-phase listeners below run
+           ahead of the game's own gesture handlers in the same event.
+           For pre-Audio-Session iOS (< 16.4) the legacy aids ride along:
+           a one-shot silent <audio> element played on the first gesture
+           (flips the session under "auto") and a one-frame silent buffer
+           through each context once it runs (the classic unlock).
+           Guarded everywhere — a no-op on browsers without the API. */
+        const AC_WRAP = (() => {
+          const Orig = window.AudioContext || window.webkitAudioContext;
+          if (!Orig) return null;
+          const routePlayback = () => {
+            try {
+              if ("audioSession" in navigator && navigator.audioSession && navigator.audioSession.type !== "playback") {
+                navigator.audioSession.type = "playback";
+              }
+            } catch (e) {}
+          };
+          routePlayback();
+          ["pointerdown", "touchstart", "click"].forEach((t) =>
+            window.addEventListener(t, routePlayback, { capture: true, passive: true }));
+          let shimPlayed = false;
+          const playShim = () => {
+            if (shimPlayed) return;
+            shimPlayed = true;
+            try {
+              const a = document.createElement("audio");
+              a.setAttribute("playsinline", "");
+              a.preload = "auto";
+              // 0.05 s of silence, 8 kHz mono WAV, as a data URI.
+              a.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQAAAAA=";
+              const p = a.play();
+              if (p && p.catch) p.catch(() => {});
+            } catch (e) {}
+          };
+          window.addEventListener("pointerdown", playShim, { capture: true, passive: true });
+          const ctxs = [];
+          const warmed = new WeakSet();
+          function WrappedAC() {
+            routePlayback();
+            const ac = new Orig(...arguments);
+            ctxs.push(ac);
+            return ac;
+          }
+          try { WrappedAC.prototype = Orig.prototype; } catch (e) {}
+          try {
+            window.AudioContext = WrappedAC;
+            if (window.webkitAudioContext) window.webkitAudioContext = WrappedAC;
+          } catch (e) { return null; }
+          const poke = () => {
+            routePlayback();
+            for (const ac of ctxs) {
+              try {
+                if (ac.state !== "running" && ac.resume) {
+                  const p = ac.resume();
+                  if (p && p.catch) p.catch(() => {});
+                }
+                if (ac.state === "running" && !warmed.has(ac)) {
+                  warmed.add(ac);
+                  const buf = ac.createBuffer(1, 1, 22050);
+                  const src = ac.createBufferSource();
+                  src.buffer = buf;
+                  src.connect(ac.destination);
+                  src.start(0);
+                }
+              } catch (e) {}
+            }
+          };
+          ["pointerdown", "pointerup", "touchstart", "touchend", "click"].forEach((t) =>
+            document.addEventListener(t, poke, { passive: true }));
+          document.addEventListener("visibilitychange", () => { if (!document.hidden) poke(); });
+          return { ctxs, poke };
+        })();
 
         /* ---------------- assets (tokens replaced at build time) ---------------- */
         const SRC = {
@@ -9624,13 +9731,14 @@ const okHP = await shareInviteText(text);
         let pop = null;         // {total, by, t0, last}
         let dispScore = [0, 0];
         const PALETTE = ["#F2607E", "#3A9BEA", "#F7A23B", "#4CC96B", "#9C6BE3", "#FFD60A", "#FABF4F"];
-        function spawnConfetti(x, y, n, power) {
+        function spawnConfetti(x, y, n, power, colors) {
+          const pal = colors && colors.length ? colors : PALETTE;
           for (let i = 0; i < n; i++) {
             if (particles.length > 260) break;
             const a = Math.random() * Math.PI * 2, sp = (0.4 + Math.random() * 0.6) * (power || 3);
             particles.push({ kind: "confetti", x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 2.2,
               w: 4 + Math.random() * 5, h: 3 + Math.random() * 4, rot: Math.random() * 6.28,
-              vr: (Math.random() - 0.5) * 0.3, color: PALETTE[(Math.random() * PALETTE.length) | 0],
+              vr: (Math.random() - 0.5) * 0.3, color: pal[(Math.random() * pal.length) | 0],
               shape: (Math.random() * 3) | 0, t0: performance.now(), life: 1500 + Math.random() * 900 });
           }
         }
@@ -9643,6 +9751,87 @@ const okHP = await shareInviteText(text);
               t0: performance.now(), life: 480 + Math.random() * 220 });
           }
         }
+        /* ---------------- FEATURES Phase A: effects layer ----------------
+           A1 letter sweep before the slam, A2 avatar speech bubbles,
+           A3 Rush combo heat + tile trails, A4 danger heartbeat,
+           A5 slow-motion win cinematic. Presentation only — nothing
+           in this section writes game state. */
+        let sweep = null;         // A1 {cells, t0, per, total}
+        let pendingCeleb = null;  // A1 {wi, by, at, cells} — celebration fires at sweep end
+        let finalSlam = false;    // A5 the final word used the slow slam
+        let cineUntil = 0;        // A5 tap-to-skip window end
+        const BUB = { you: null, cpu: null };   // A2 {text, t0, dur, prio}
+        const BUB_LINES = {
+          scoreYou: ["Nailed it!", "That's how it's done.", "Yes — mine!", "Got one!", "Too smooth."],
+          scoreCpu: ["Too easy.", "Mine, thanks.", "Keep up.", "Saw that one first.", "All mine."],
+          tauntYou: ["I'm ahead now!", "Catch me if you can.", "Leading suits me."],
+          tauntCpu: ["My lead now.", "Try to keep up.", "Ahead — where I belong."],
+          grumbleYou: ["Hey — that was mine...", "Okay, that stings.", "I needed that one."],
+          grumbleCpu: ["Hmph. Lucky.", "That one was mine.", "Enjoy it while it lasts."],
+          comboYou: ["Heating up!", "Can't stop me now!", "On a tear!"],
+          comboCpu: ["I'm on fire.", "Combo climbing.", "Feel that heat?"],
+          winYou: ["I win! Great game.", "Victory tastes sweet."],
+          winCpu: ["I win. Good game.", "Told you to keep up."],
+          loseYou: ["Good game... ouch.", "Rematch. Right now."],
+          loseCpu: ["...Good game.", "I want a rematch."]
+        };
+        const bubIdx = {};
+        let lastLeader = -1;      // -1 none yet, 0 you, 1 cpu (ties don't move it)
+        /* Combo-bubble fix (audit item 3): the Rush combo as of the
+           last frame, per side. The base game advances the combo
+           inside rushAttemptPlace / rushCpuPlace BEFORE the placement
+           reaches lockLetter — and with it this layer's juice hook —
+           so a snapshot taken around the hook call can never observe
+           the increase. The frame mirror can: the advance and the
+           hook run inside one task, while frames land between
+           placements. Synced every frame in loop(); the juice
+           wrapper compares against it and consumes the step it
+           fires on. */
+        let prevCombo = [1, 1];
+        /* A combo line queued behind the same placement's word
+           bubble: {cat, at} per side, spoken once the slot frees. */
+        const comboSayQ = { you: null, cpu: null };
+        function say(who, cat, dur, prio) {
+          const lines = BUB_LINES[cat]; if (!lines || !lines.length) return;
+          const now = performance.now();
+          const cur = BUB[who];
+          prio = prio || 1;
+          if (cur && now - cur.t0 < cur.dur) {
+            if (prio < cur.prio) return;
+            if (prio === cur.prio && now - cur.t0 < 650) return;
+          }
+          let i = ((bubIdx[cat] || 0) + 1) % lines.length;
+          if (cur && lines[i] === cur.text) i = (i + 1) % lines.length;
+          bubIdx[cat] = i;
+          BUB[who] = { text: lines[i], t0: now, dur: dur || 1600, prio };
+        }
+        function leaderOf() {
+          if (typeof G === "undefined" || !G) return 2;
+          if (G.scores[0] === G.scores[1]) return 2;
+          return G.scores[0] > G.scores[1] ? 0 : 1;
+        }
+        /* A3: Rush heat — 0 at combo x1, 1 at x5, eased toward live. */
+        let heatCur = 0;
+        function heatTarget() {
+          if (typeof G === "undefined" || !G || G.mode !== "rush" || !G.rush || G.gameOver) return 0;
+          return clamp(((G.rush.combo[0] || 1) - 1) / 4, 0, 1);
+        }
+        function heatColor(h) {
+          const stops = [[56, 130, 246], [247, 162, 59], [242, 96, 96]];
+          const x = clamp(h, 0, 1) * 2, i = Math.min(1, Math.floor(x)), f = x - i;
+          const a = stops[i], b = stops[i + 1];
+          return "rgb(" + Math.round(lerp(a[0], b[0], f)) + "," + Math.round(lerp(a[1], b[1], f)) + "," + Math.round(lerp(a[2], b[2], f)) + ")";
+        }
+        /* A4: danger heartbeat — two-beat thump over ~620 ms. */
+        let heartbeat = null;     // {t0}
+        const dangerSeen = {};    // wi -> true (once per word-threat per game)
+        let dangerG = null;
+        function beatK(t) {
+          const b1 = Math.exp(-Math.pow((t - 0.14) / 0.075, 2));
+          const b2 = 0.75 * Math.exp(-Math.pow((t - 0.40) / 0.085, 2));
+          return Math.min(1, b1 + b2);
+        }
+
         function showRibbon(text, by, prio) {
           const now = performance.now();
           if (ribbon && prio < ribbon.prio && now - ribbon.t0 < 1500) return;
@@ -9667,7 +9856,26 @@ const okHP = await shareInviteText(text);
           const now = performance.now();
           slammedAt[wi] = now;
           if (typeof G === "undefined" || !G || !L) return;
-          const cells = G.wordCells[wi] || [];
+          const cells = (G.wordCells[wi] || []).slice();
+          /* A5 sequencing: flag the final word NOW, synchronously —
+             the game's own end-of-game can fire before the delayed
+             celebration runs, and the game-over beat must know the
+             slow slam is the cinematic (it checks this flag). */
+          try { if (G.completedWords && G.puzzle && G.puzzle.words && G.completedWords.size >= G.puzzle.words.length) finalSlam = true; } catch (e) {}
+          /* A1: the glow sweep runs letter-by-letter along the word
+             FIRST (40–60 ms per letter, total capped at 480 ms); the
+             existing celebration — flash, ribbon, confetti and the
+             camera slam — fires when the sweep lands. Reduced-motion
+             (or a 1-letter word) skips straight to the celebration. */
+          if (reduced() || cells.length < 2) { fireCelebration(wi, by, cells); return; }
+          const total = Math.min(60 * cells.length, 480);
+          sweep = { cells, t0: now, per: total / cells.length, total };
+          pendingCeleb = { wi, by, at: now + total, cells };
+          boardDirty = true; boardAnimUntil = Math.max(boardAnimUntil, now + total + 750);
+        }
+        function fireCelebration(wi, by, cells) {
+          const now = performance.now();
+          if (typeof G === "undefined" || !G || !L) return;
           const word = ((G.puzzle.words[wi] && G.puzzle.words[wi].a) || "").toString();
           wordFlash = { cells: cells.slice(), t0: now };
           boardDirty = true; boardAnimUntil = Math.max(boardAnimUntil, now + 700);
@@ -9677,30 +9885,58 @@ const okHP = await shareInviteText(text);
           showRibbon(word.toUpperCase() + "!", by, 2);
           spawnConfetti(sx, sy, 30, 3.4); spawnSparks(sx, sy, 8);
           const rp = camPose || restPose();
+          /* A5: when this word ends the game, the slam plays in slow
+             motion (~0.35x — every key time and the total duration
+             scale by 2.86) and the game-over beat takes over from
+             there instead of adding its own sweep. */
+          let isFinal = false;
+          try { isFinal = !!(G.completedWords && G.puzzle && G.puzzle.words && G.completedWords.size >= G.puzzle.words.length); } catch (e) {}
+          if (isFinal) { finalSlam = true; camAnim = null; camPrio = 0; }  // the final slam always wins the camera
+          const TS = isFinal ? 2.86 : 1;
           if (word.length >= 7) {
-            camStart(4, 1900, [
+            camStart(4, 1900 * TS, [
               { at: 0, pose: { ...rp } },
-              { at: 500, pose: { s: 1.48, fx: bx2, fy: by2, rx: 9, rz: 1.5, tx: 36, ty: 0 }, ease: easeInOut },
-              { at: 1400, pose: { s: 1.48, fx: bx2, fy: by2, rx: 9, rz: 1.5, tx: -36, ty: 0 }, ease: easeInOut },
-              { at: 1900, pose: restPose(), ease: easeInOut }]);
+              { at: 500 * TS, pose: { s: 1.48, fx: bx2, fy: by2, rx: 9, rz: 1.5, tx: 36, ty: 0 }, ease: easeInOut },
+              { at: 1400 * TS, pose: { s: 1.48, fx: bx2, fy: by2, rx: 9, rz: 1.5, tx: -36, ty: 0 }, ease: easeInOut },
+              { at: 1900 * TS, pose: restPose(), ease: easeInOut }]);
           } else {
-            camStart(3, 2420, [
+            camStart(3, 2420 * TS, [
               { at: 0, pose: { ...rp } },
-              { at: 120, pose: { ...rp }, ease: easeOut },
-              { at: 720, pose: { s: 2.2, fx: bx2, fy: by2, rx: 13.5, rz: 2.5, tx: 0, ty: 0 }, ease: easeOut },
-              { at: 1300, pose: { s: 2.24, fx: bx2 + 6, fy: by2 - 4, rx: 14.5, rz: 3.2, tx: 5, ty: -3 }, ease: easeInOut },
-              { at: 1800, pose: { s: 2.17, fx: bx2 - 5, fy: by2 + 3, rx: 12.5, rz: 2, tx: -5, ty: 2 }, ease: easeInOut },
-              { at: 2120, pose: { s: 2.2, fx: bx2, fy: by2, rx: 13.5, rz: 2.5, tx: 0, ty: 0 }, ease: easeInOut },
-              { at: 2420, pose: restPose(), ease: easeInOut }]);
+              { at: 120 * TS, pose: { ...rp }, ease: easeOut },
+              { at: 720 * TS, pose: { s: 2.2, fx: bx2, fy: by2, rx: 13.5, rz: 2.5, tx: 0, ty: 0 }, ease: easeOut },
+              { at: 1300 * TS, pose: { s: 2.24, fx: bx2 + 6, fy: by2 - 4, rx: 14.5, rz: 3.2, tx: 5, ty: -3 }, ease: easeInOut },
+              { at: 1800 * TS, pose: { s: 2.17, fx: bx2 - 5, fy: by2 + 3, rx: 12.5, rz: 2, tx: -5, ty: 2 }, ease: easeInOut },
+              { at: 2120 * TS, pose: { s: 2.2, fx: bx2, fy: by2, rx: 13.5, rz: 2.5, tx: 0, ty: 0 }, ease: easeInOut },
+              { at: 2420 * TS, pose: restPose(), ease: easeInOut }]);
           }
           if (by === 0) { avReact("you", "celeb", 2500); avReact("cpu", "shock", 2300); }
           else { avReact("cpu", "smug", 2600); avReact("you", "shock", 2300); }
+          /* A2: speech — a lead change earns a taunt (and a grumble
+             from the side that lost it); otherwise the scorer talks. */
+          const lead = leaderOf();
+          if (lastLeader !== -1 && lead !== 2 && lead !== lastLeader) {
+            if (lead === 0) { say("you", "tauntYou", 1700, 2); setTimeout(() => say("cpu", "grumbleCpu", 1500, 1), 550); }
+            else { say("cpu", "tauntCpu", 1700, 2); setTimeout(() => say("you", "grumbleYou", 1500, 1), 550); }
+          } else {
+            say(by === 0 ? "you" : "cpu", by === 0 ? "scoreYou" : "scoreCpu", 1600, 1);
+          }
+          if (lead !== 2) lastLeader = lead;
         }
-        function onCombo(cell, by, n) {
+        function onCombo(cell, by, n, afterWord) {
           const s = cellScreen(cell);
           spawnSparks(s.x, s.y, 10);
           tags.push({ text: "×" + n, x: s.x, y: s.y - 14, t0: performance.now() });
           if (n >= 3) { if (by === 0) avReact("you", "celeb", 1700); else avReact("cpu", "smug", 1700); }
+          if (n >= 3) {
+            const who = by === 0 ? "you" : "cpu", cat = by === 0 ? "comboYou" : "comboCpu";
+            /* When this placement also completed a word, the
+               celebration's own bubble (score / taunt) speaks first;
+               queue the combo line to follow it (spoken from loop()
+               once the slot frees) instead of the two bubbles
+               fighting over the same slot in the same instant. */
+            if (afterWord) comboSayQ[who] = { cat, at: performance.now() + 900 };
+            else say(who, cat, 1500, 1);
+          }
         }
         function snapshot() {
           if (typeof G === "undefined" || !G) return { scores: [0, 0], words: new Set(), combo: [0, 0], current: 0 };
@@ -9732,7 +9968,33 @@ const okHP = await shareInviteText(text);
               }
               if (G.rush && G.rush.combo) {
                 const cb = G.rush.combo[by] || 0;
-                if (cb > before.combo[by]) onCombo(cell, by, cb);
+                /* Compare against the previous FRAME's combo, not
+                   the snapshot above: rushComboAdvance already ran
+                   before this hook was reached, so before.combo
+                   always equals cb and the increase was invisible
+                   (audit item 3). prevCombo is last frame's value —
+                   the advance happened after it. Consume the step so
+                   a second hook call inside the same frame cannot
+                   re-fire it. */
+                if (cb > prevCombo[by]) {
+                  /* Did THIS placement complete a word? lockLetter
+                     registers the completion in G.completedWords
+                     BEFORE calling this hook, so the snapshot diff
+                     above (newWord) can miss it; ask the board
+                     directly — a word through this cell that is
+                     complete now but still unknown to the frame-diff
+                     net (prevWords) was finished by this placement.
+                     onCombo sequences its bubble behind that word's
+                     celebration bubble. */
+                  let wordDone = newWord >= 0;
+                  if (!wordDone && G.cellWords && G.cellWords[cell] && G.completedWords) {
+                    for (const wi of G.cellWords[cell]) {
+                      if (G.completedWords.has(wi) && !prevWords.has(wi)) { wordDone = true; break; }
+                    }
+                  }
+                  prevCombo[by] = cb;
+                  onCombo(cell, by, cb, wordDone);
+                }
               }
             } catch (e) {}
           };
@@ -9744,16 +10006,47 @@ const okHP = await shareInviteText(text);
             _over.call(ArcadeJuice);
             try {
               if (!active || typeof G === "undefined" || !G) return;
+              const now = performance.now();
               const w = G.winner;
               const rp = camPose || restPose();
-              camStart(4, 1900, [
-                { at: 0, pose: { ...rp } },
-                { at: 600, pose: { s: 1.45, fx: rp.fx, fy: rp.fy, rx: 8, rz: 1, tx: 34, ty: 0 }, ease: easeInOut },
-                { at: 1350, pose: { s: 1.45, fx: rp.fx, fy: rp.fy, rx: 8, rz: 1, tx: -34, ty: 0 }, ease: easeInOut },
-                { at: 1900, pose: restPose(), ease: easeInOut }]);
-              if (L) { spawnConfetti(L.w * 0.3, L.h * 0.35, 40, 4); spawnConfetti(L.w * 0.7, L.h * 0.3, 40, 4); }
-              if (w === 0) { showRibbon("YOU WIN!", 0, 4); avReact("you", "celeb", 4200); avReact("cpu", "shock", 3800); }
-              else if (w === 1) { avReact("cpu", "smug", 4200); avReact("you", "shock", 3800); }
+              /* A5 win cinematic: if the final word's slow-motion
+                 slam is already running it IS the cinematic — don't
+                 stack a second sweep on top of it. Otherwise play the
+                 win sweep stretched to the same slow beat. Either way
+                 the whole beat is skippable with one tap (the
+                 pointerdown hook in init clears the camera track),
+                 and the results modal timing is untouched. */
+              /* A board-full ending means the final word's own
+                 celebration owns the camera. It may not have fired
+                 yet: same-device completions reach the scene through
+                 the frame-diff net a frame AFTER the placement, while
+                 the game's end check runs synchronously inside it —
+                 so this wrapper can run first. Detect the full board
+                 directly instead of trusting the flag alone. */
+              let boardFullFinal = false;
+              try { boardFullFinal = !!(G.completedWords && G.puzzle && G.puzzle.words && G.completedWords.size >= G.puzzle.words.length); } catch (e) {}
+              cineUntil = now + ((finalSlam || boardFullFinal) ? 7000 : 3400);
+              if (!finalSlam && !boardFullFinal) {
+                const TS = 3000 / 1900;
+                camStart(4, 3000, [
+                  { at: 0, pose: { ...rp } },
+                  { at: 600 * TS, pose: { s: 1.45, fx: rp.fx, fy: rp.fy, rx: 8, rz: 1, tx: 34, ty: 0 }, ease: easeInOut },
+                  { at: 1350 * TS, pose: { s: 1.45, fx: rp.fx, fy: rp.fy, rx: 8, rz: 1, tx: -34, ty: 0 }, ease: easeInOut },
+                  { at: 3000, pose: restPose(), ease: easeInOut }]);
+              }
+              finalSlam = false;
+              // confetti in the WINNER's colours: blue family for the
+              // player, orange/rose for the CPU.
+              const WIN_COL = { you: ["#3A9BEA", "#2563EB", "#93C5FD", "#FFD60A"], cpu: ["#F49A66", "#F2607E", "#FB923C", "#FFD60A"] };
+              if (L) {
+                const cols = w === 0 ? WIN_COL.you : (w === 1 ? WIN_COL.cpu : null);
+                spawnConfetti(L.w * 0.3, L.h * 0.35, 40, 4, cols); spawnConfetti(L.w * 0.7, L.h * 0.3, 40, 4, cols);
+              }
+              // the loser's avatar deflates / sags (drawAvatar reads it)
+              const loser = w === 0 ? "cpu" : (w === 1 ? "you" : null);
+              if (loser) AV[loser].deflateUntil = now + 4200;
+              if (w === 0) { showRibbon("YOU WIN!", 0, 4); avReact("you", "celeb", 4200); avReact("cpu", "shock", 3800); say("you", "winYou", 2600, 3); say("cpu", "loseCpu", 2600, 3); }
+              else if (w === 1) { avReact("cpu", "smug", 4200); avReact("you", "shock", 3800); say("cpu", "winCpu", 2600, 3); say("you", "loseYou", 2600, 3); }
             } catch (e) {}
           };
           ArcadeJuice.sync = function () {
@@ -9776,14 +10069,25 @@ const okHP = await shareInviteText(text);
             lastG = G; clueDirty = true; prevFilled = G.filled.slice();
             prevWords = new Set(G.completedWords || []); prevCurrent = G.current || 0;
             dispScore = [G.scores[0] || 0, G.scores[1] || 0];
+            // Phase A per-game reset: bubbles, sweep, leader tracking,
+            // danger flags and the cinematic flag all start clean.
+            BUB.you = null; BUB.cpu = null; sweep = null; pendingCeleb = null;
+            lastLeader = -1; finalSlam = false; heartbeat = null;
+            prevCombo = [1, 1]; comboSayQ.you = null; comboSayQ.cpu = null;
+            for (const k in dangerSeen) delete dangerSeen[k];
+            dangerG = G;
             return;
           }
           if (!prevFilled) prevFilled = G.filled.slice();
           let anyFill = false;
+          const changedCells = [];
           for (let i = 0; i < G.filled.length; i++) {
             if (prevFilled[i] !== G.filled[i]) {
               anyFill = true;
-              if (prevFilled[i] === null && G.filled[i] !== null && now - placedAt[i] > 900) placedAt[i] = now;
+              if (prevFilled[i] === null && G.filled[i] !== null) {
+                changedCells.push(i);
+                if (now - placedAt[i] > 900) placedAt[i] = now;
+              }
             }
             prevFilled[i] = G.filled[i];
           }
@@ -9805,13 +10109,52 @@ const okHP = await shareInviteText(text);
               }
             });
           }
+          /* A3: while a Rush combo is hot (x2+), the local player's
+             placements shed a few short-lived trail particles. */
+          if (changedCells.length && G.mode === "rush" && G.rush && (G.rush.combo[0] || 0) >= 2) {
+            for (const ci of changedCells) {
+              if (G.filledBy[ci] !== 0) continue;
+              const s = cellScreen(ci);
+              for (let k = 0; k < 3; k++) {
+                if (particles.length > 260) break;
+                particles.push({ kind: "trail", x: s.x + (Math.random() - 0.5) * 14, y: s.y + (Math.random() - 0.5) * 14,
+                  vx: (Math.random() - 0.5) * 0.7, vy: 0.5 + Math.random() * 0.7, w: 3 + Math.random() * 3, rot: 0, vr: 0,
+                  color: heatCur > 0.66 ? "#F2607E" : "#F7A23B", shape: 1, t0: now, life: 340 + Math.random() * 160 });
+              }
+            }
+          }
+          /* A4: danger moment — the OPPOSING side (filledBy 1) moves a
+             word to exactly one letter remaining: heartbeat pulse +
+             that side's avatar leans in, at most once per word-threat.
+             Skipped in Practice (no opponent) and Rush PvP (the rival
+             races on their own board, not this one). */
+          if (changedCells.length && !G.rushPvp && G.mode !== "practice") {
+            if (dangerG !== G) { dangerG = G; for (const k in dangerSeen) delete dangerSeen[k]; }
+            for (const ci of changedCells) {
+              if (G.filledBy[ci] !== 1) continue;
+              const wis = G.cellWords ? G.cellWords[ci] : null;
+              if (!wis) continue;
+              for (const wi of wis) {
+                if (dangerSeen[wi] || (G.completedWords && G.completedWords.has(wi))) continue;
+                const cells = G.wordCells[wi] || [];
+                let rem = 0;
+                for (const cc of cells) if (G.filled[cc] === null || G.filled[cc] === undefined) rem++;
+                if (rem === 1) {
+                  dangerSeen[wi] = true;
+                  heartbeat = { t0: now };
+                  AV.cpu.leanUntil = now + 1000;
+                  avReact("cpu", "smug", 1100);
+                }
+              }
+            }
+          }
         }
 
         /* ---------------- board: drawn in board space, warped by the camera ---------------- */
         let boardCv = null, bx = null, DPR = 1;
         let boardDirty = true, boardAnimUntil = 0, prevSel = undefined, prevHover = -2;
         function drawBoard(now) {
-          const flashActive = wordFlash && now - wordFlash.t0 < 650;
+          const flashActive = (wordFlash && now - wordFlash.t0 < 650) || !!sweep || !!pendingCeleb;
           if (!boardDirty && !flashActive && now > boardAnimUntil) return;
           boardDirty = false; boardVer++;
           const w = L.board.w, h = L.board.h;
@@ -9898,8 +10241,10 @@ const okHP = await shareInviteText(text);
             } catch (e) {}
             return;
           }
-          // filled block
-          const key = bonus ? "gold" : (G.filledBy[i] === 0 ? HUES[hueIdx(i)] : "peach");
+          // filled block (FEATURES B2: a cell filled with a golden
+          // tile renders gold, like a bonus cell, whatever its hue)
+          const fxGold = !!(window.ArcadeFxGold && window.ArcadeFxGold.has(i));
+          const key = (bonus || fxGold) ? "gold" : (G.filledBy[i] === 0 ? HUES[hueIdx(i)] : "peach");
           const spr = SPRITES[key];
           let sc = 1;
           const pt = now - (placedAt[i] || 0);
@@ -9923,6 +10268,13 @@ const okHP = await shareInviteText(text);
           bx.fillText(letter, x + w / 2, y + h / 2 + 2.5);
           bx.fillStyle = "#FFFFFF";
           bx.fillText(letter, x + w / 2, y + h / 2 + 1);
+          if (fxGold && !bonus) {
+            bx.font = "900 8px Arial"; bx.textAlign = "center"; bx.textBaseline = "middle";
+            const tw2 = bx.measureText("×2").width + 7;
+            roundRectPath(bx, x + w - tw2 - 2, y + h - 12, tw2, 10, 5); bx.fillStyle = "#FFD60A"; bx.fill();
+            bx.fillStyle = "#7C2D12";
+            bx.fillText("×2", x + w - tw2 / 2 - 2, y + h - 6.5);
+          }
           if (G.turnCells && G.turnCells.has(i)) {
             bx.beginPath(); bx.arc(x + w - 5, y + 5, 2.6, 0, 6.283); bx.fillStyle = "#FFD60A"; bx.fill();
             if (bonus) {
@@ -9938,6 +10290,23 @@ const okHP = await shareInviteText(text);
             roundRectPath(bx, x + 0.5, y + 0.5, w - 1, h - 1, 7);
             bx.fillStyle = "rgba(255,214,10," + fa.toFixed(3) + ")"; bx.fill();
             bx.lineWidth = 2; bx.strokeStyle = "rgba(255,255,255," + (fa * 1.4).toFixed(3) + ")"; bx.stroke();
+          }
+          /* A1: the letter sweep — each tile of the just-completed
+             word lights in turn (bright head, short fade) before the
+             celebration flash takes over. */
+          if (sweep) {
+            const k = sweep.cells.indexOf(i);
+            if (k !== -1) {
+              const lt = (now - sweep.t0) - k * sweep.per;
+              if (lt > 0) {
+                const a = lt < 110 ? (lt / 110) * 0.85 : Math.max(0, 0.85 * (1 - (lt - 110) / 330));
+                if (a > 0.01) {
+                  roundRectPath(bx, x + 0.5, y + 0.5, w - 1, h - 1, 7);
+                  bx.fillStyle = "rgba(255,224,130," + a.toFixed(3) + ")"; bx.fill();
+                  bx.lineWidth = 2; bx.strokeStyle = "rgba(255,255,255," + Math.min(1, a * 1.3).toFixed(3) + ")"; bx.stroke();
+                }
+              }
+            }
           }
           bx.restore();
         }
@@ -10074,7 +10443,6 @@ const okHP = await shareInviteText(text);
           roundRectPath(c, r.x, r.y, r.w, r.h, 18); c.fillStyle = g; c.fill();
           c.fillStyle = "#78350F"; roundRectPath(c, r.x, r.y + r.h - 5, r.w, 5, 2.5); c.fill();
           c.fillStyle = "rgba(255,255,255,0.35)"; roundRectPath(c, r.x + 2, r.y + 2, r.w - 4, 3, 1.5); c.fill();
-          const spr = SPRITES.blue;
           G.rack.forEach((tile, idx) => {
             const tr = L.rackTiles[idx]; if (!tr) return;
             const x = tr.x, y = tr.y, w = tr.w, h = tr.h;
@@ -10083,13 +10451,19 @@ const okHP = await shareInviteText(text);
               c.fillStyle = "rgba(0,0,0,0.28)"; c.fill();
               return;
             }
+            /* FEATURES B2: golden tiles wear the gold face with a x2
+               badge; wild tiles wear the pink face and show "?"
+               (their letter is picked at placement time). */
+            const sprKey = tile.gold ? "gold" : (tile.wild ? "pink" : "blue");
+            const spr = SPRITES[sprKey];
+            const face = tile.wild ? "?" : tile.letter;
             const sel = G.selectedTileId === tile.id;
             const pick = G.swapPicked && G.swapPicked.has(tile.id);
             const lift = sel ? -7 : 0, sc = sel ? 1.07 : 1;
             c.save();
             c.fillStyle = "rgba(0,0,0,0.35)";
             c.beginPath(); c.ellipse(x + w / 2, y + h - 1 + lift, w * 0.42, 3, 0, 0, 6.283); c.fill();
-            c.fillStyle = shade(TILE_BASE.blue, 0.45);
+            c.fillStyle = shade(TILE_BASE[sprKey], 0.45);
             roundRectPath(c, x + 1, y + 1 + lift + 4, w - 2, h - 2, 13); c.fill();
             const dw = w * sc, dh = h * sc;
             if (spr) c.drawImage(spr.face, x + w / 2 - dw / 2, y + h / 2 - dh / 2 + lift, dw, dh);
@@ -10097,8 +10471,18 @@ const okHP = await shareInviteText(text);
             if (pick) { roundRectPath(c, x - 2, y - 2, w + 4, h + 4, 15); c.lineWidth = 2.5; c.strokeStyle = "#F2607E"; c.stroke(); }
             c.font = "900 " + Math.round(h * 0.5) + "px 'Arial Black', Arial, sans-serif";
             c.textAlign = "center"; c.textBaseline = "middle";
-            c.fillStyle = "rgba(0,0,0,0.35)"; c.fillText(tile.letter, x + w / 2, y + h / 2 + 2.5 + lift);
-            c.fillStyle = "#FFF"; c.fillText(tile.letter, x + w / 2, y + h / 2 + 1 + lift);
+            c.fillStyle = "rgba(0,0,0,0.35)"; c.fillText(face, x + w / 2, y + h / 2 + 2.5 + lift);
+            c.fillStyle = "#FFF"; c.fillText(face, x + w / 2, y + h / 2 + 1 + lift);
+            if (tile.gold) {
+              c.font = "900 10px Arial";
+              const bw = c.measureText("×2").width + 8;
+              roundRectPath(c, x + w - bw - 3, y + h - 15 + lift, bw, 12, 6); c.fillStyle = "#FFD60A"; c.fill();
+              c.fillStyle = "#7C2D12"; c.fillText("×2", x + w - bw / 2 - 3, y + h - 8.5 + lift);
+            }
+            if (tile.wild) {
+              c.font = "800 8px Arial"; c.fillStyle = "rgba(255,255,255,0.92)";
+              c.fillText("WILD", x + w / 2, y + h - 8 + lift);
+            }
             c.restore();
           });
         }
@@ -10175,6 +10559,16 @@ const okHP = await shareInviteText(text);
           }
           return s;
         }
+        // FIX4: fit a text run to maxW — shrink the font first (via
+        // fitFont), then truncate with an ellipsis, so a long name can
+        // never overflow its slot and run under the avatar disc.
+        function fitRun(c, text, maxW, weight, px, family) {
+          fitFont(c, text, maxW, weight, px, family);
+          if (c.measureText(text).width <= maxW) return text;
+          let t = String(text);
+          while (t.length > 1 && c.measureText(t + "\u2026").width > maxW) t = t.slice(0, -1);
+          return t + "\u2026";
+        }
         function drawAvatar(c, who, now) {
           const geo = avGeom(who);
           if (!geo) return;
@@ -10182,7 +10576,29 @@ const okHP = await shareInviteText(text);
           const A = AV[who];
           let sc = 1;
           if (A.pop) { const t = (now - A.pop) / 480; if (t >= 0 && t < 1) sc = 1 + 0.22 * Math.sin(t * Math.PI); }
+          /* Phase A avatar body language: A4 lean-in (threatening
+             side tips toward the board, slight grow) and A5 deflate
+             (the loser squashes toward its bottom edge and sags). */
+          let avOX = 0, avOY = 0, avSY = 1;
+          if (A.leanUntil && now < A.leanUntil) {
+            const t = 1 - (A.leanUntil - now) / 1000;
+            const k = Math.sin(Math.min(1, Math.max(0, t)) * Math.PI);
+            avOX = (who === "you" ? 1 : -1) * 9 * k;
+            sc *= 1 + 0.05 * k;
+          }
+          if (A.deflateUntil && now < A.deflateUntil) {
+            const t = 1 - (A.deflateUntil - now) / 4200;
+            const k = t < 0.18 ? easeOut(clamp(t / 0.18, 0, 1)) : 1;
+            avSY = 1 - 0.24 * k; avOY = R * 0.20 * k;
+          }
+          const avWarp = (fn) => {
+            c.save();
+            c.translate(cx + avOX, cy + avOY + R * sc); c.scale(1, avSY); c.translate(-cx, -(cy + R * sc));
+            fn();
+            c.restore();
+          };
           const isActive = typeof G !== "undefined" && G && ((who === "you" && G.current === 0) || (who === "cpu" && G.current === 1)) && !G.gameOver;
+          avWarp(() => {
           c.save();
           c.beginPath(); c.arc(cx, cy, R * sc + 4, 0, 6.283);
           c.fillStyle = isActive ? "rgba(255,214,10,0.28)" : "rgba(0,0,0,0.28)"; c.fill();
@@ -10210,8 +10626,11 @@ const okHP = await shareInviteText(text);
             c.fillStyle = who === "you" ? "#2563EB" : "#991B1B"; c.fillRect(cx - R, cy - R, 2 * R, 2 * R);
           }
           c.restore();
+          });
+          avWarp(() => {
           c.beginPath(); c.arc(cx, cy, R * sc, 0, 6.283);
           c.lineWidth = 3; c.strokeStyle = who === "you" ? "#F4C275" : "#FB7185"; c.stroke();
+          });
         }
         let gradCache = {};
         function panelGrad(c, who, r) {
@@ -10249,25 +10668,36 @@ const okHP = await shareInviteText(text);
           for (const who of ["you", "cpu"]) {
             const p = who === "you" ? L.pYou : L.pCpu;
             const idx = who === "you" ? 0 : 1;
-            const col = avTextCol(who, avGeom(who));
+            const geo = avGeom(who);
+            const col = avTextCol(who, geo);
             const whoEl = $(who === "you" ? "#scoreYou .who" : "#scoreCpu .who");
             const name = ((whoEl && whoEl.textContent) || (who === "you" ? "You" : "CPU")).replace(/\s+/g, " ").trim().toUpperCase();
             const maxW = p.w - col - 8;
-            fitFont(c, name, maxW, "800", 13, "Arial");
-            c.fillStyle = "rgba(255,255,255,0.92)"; c.textBaseline = "top";
-            if (who === "you") { c.textAlign = "left"; c.fillText(name, p.x + col, p.y - 8 + 10); }
-            else { c.textAlign = "right"; c.fillText(name, p.x + p.w - col, p.y - 8 + 10); }
             const sTxt = String(Math.round(dispScore[idx]));
             fitFont(c, sTxt, maxW, "900", 30, "'Arial Black', Arial");
             c.textBaseline = "alphabetic";
             c.fillStyle = who === "you" ? "#FFD60A" : "#FDA4AF";
             if (who === "you") { c.textAlign = "left"; c.fillText(sTxt, p.x + col, p.y + p.h - 10); }
             else { c.textAlign = "right"; c.fillText(sTxt, p.x + p.w - col, p.y + p.h - 10); }
-            if (typeof G !== "undefined" && G && G.scores[0] !== G.scores[1] &&
-                ((idx === 0 && G.scores[0] > G.scores[1]) || (idx === 1 && G.scores[1] > G.scores[0]))) {
-              c.font = "16px serif"; c.textBaseline = "top"; c.textAlign = "left";
-              c.fillText("👑", who === "you" ? p.x + p.w - 26 : p.x + 6, p.y - 8 + 8);
-            }
+            // FIX4: name plate UNDER the disc, centered on the disc's
+            // center-x. The old top-row name ran under the companion
+            // mascot standing on the YOU panel, and the separate corner
+            // crown draw sat on the CPU name's first letter ("👑PU").
+            // The strip below the disc is the one band nothing else
+            // occupies — the score column owns the panel's inner side —
+            // and the text is painted after the avatars, so nothing can
+            // cover it. The leader crown folds into the name run, and
+            // the run is capped at 104px (shrink, then ellipsis) so it
+            // can never reach the score column.
+            const lead = typeof G !== "undefined" && G && G.scores[0] !== G.scores[1] &&
+              ((idx === 0 && G.scores[0] > G.scores[1]) || (idx === 1 && G.scores[1] > G.scores[0]));
+            const run = (lead ? "👑 " : "") + name;
+            c.save();
+            c.textAlign = "center"; c.textBaseline = "alphabetic";
+            c.fillStyle = "rgba(255,255,255,0.92)";
+            const nameCx = clamp(geo.cx, 54, Math.max(54, L.w - 54));
+            c.fillText(fitRun(c, run, 104, "800", 12, "Arial"), nameCx, p.y + p.h - 3);
+            c.restore();
           }
           // title + chips — after the avatars, so the header text stays
           // readable where a disc's top arc passes behind the header row
@@ -10400,6 +10830,12 @@ const okHP = await shareInviteText(text);
               else if (p.shape === 1) { c.beginPath(); c.arc(0, 0, p.w / 2, 0, 6.283); c.fill(); }
               else c.fillRect(-p.w / 2, -p.h / 4, p.w, p.h / 2);
               c.restore();
+            } else if (p.kind === "trail") {
+              // A3: short drift-and-fade dots shed by hot-combo placements
+              p.x += p.vx * dts * 60; p.y += p.vy * dts * 60;
+              c.save(); c.globalAlpha = (1 - k) * 0.8;
+              c.fillStyle = p.color; c.beginPath(); c.arc(p.x, p.y, Math.max(0.4, p.w * (1 - k * 0.5)), 0, 6.283); c.fill();
+              c.restore();
             } else {
               p.x += p.vx * dts * 60; p.y += p.vy * dts * 60;
               const sc = 0.6 + k * 0.9;
@@ -10455,6 +10891,61 @@ const okHP = await shareInviteText(text);
           c.strokeText(txt, 0, 1); c.fillStyle = "#FFDF6B"; c.fillText(txt, 0, 1);
           c.restore();
         }
+        /* A3: Rush combo heat — the screen edges glow hotter as the
+           combo climbs (cool blue at x2 through orange to hot rose
+           at x5). Four gradient fills per frame, alpha-pulsed. */
+        function drawHeat(c, now) {
+          if (heatCur < 0.02 || !L) return;
+          const T = 30, col = heatColor(heatCur);
+          const pulse = 0.85 + 0.15 * Math.sin(now / 260);
+          c.save();
+          c.globalAlpha = (0.10 + 0.30 * heatCur) * pulse;
+          let g = c.createLinearGradient(0, 0, 0, T);
+          g.addColorStop(0, col); g.addColorStop(1, "rgba(0,0,0,0)");
+          c.fillStyle = g; c.fillRect(0, 0, L.w, T);
+          g = c.createLinearGradient(0, L.h, 0, L.h - T);
+          g.addColorStop(0, col); g.addColorStop(1, "rgba(0,0,0,0)");
+          c.fillStyle = g; c.fillRect(0, L.h - T, L.w, T);
+          g = c.createLinearGradient(0, 0, T, 0);
+          g.addColorStop(0, col); g.addColorStop(1, "rgba(0,0,0,0)");
+          c.fillStyle = g; c.fillRect(0, 0, T, L.h);
+          g = c.createLinearGradient(L.w, 0, L.w - T, 0);
+          g.addColorStop(0, col); g.addColorStop(1, "rgba(0,0,0,0)");
+          c.fillStyle = g; c.fillRect(L.w - T, 0, T, L.h);
+          c.restore();
+        }
+        /* A2: speech bubbles — a dark pill hanging just under the
+           speaker's avatar disc, tail pointing up at the disc. The
+           spot is below the FIX4 name plate and above the board's
+           top edge, so it covers neither the plates nor the board's
+           active area. Text only, no emoji. */
+        function drawBubbles(c, now) {
+          for (const who of ["you", "cpu"]) {
+            const b = BUB[who]; if (!b) continue;
+            const age = now - b.t0;
+            if (age > b.dur) { BUB[who] = null; continue; }
+            const geo = avGeom(who); if (!geo) continue;
+            let a = 1;
+            if (age < 130) a = age / 130;
+            else if (age > b.dur - 260) a = Math.max(0, (b.dur - age) / 260);
+            const popK = age < 220 ? easeOutBack(clamp(age / 220, 0, 1)) : 1;
+            c.save();
+            c.font = "700 12.5px Arial, sans-serif";
+            const tw = Math.min(178, c.measureText(b.text).width + 26);
+            const bxC = clamp(geo.cx, tw / 2 + 6, Math.max(tw / 2 + 6, L.w - tw / 2 - 6));
+            const byC = geo.cy + geo.R + 26;
+            c.translate(bxC, byC); c.scale(0.7 + 0.3 * popK, 0.7 + 0.3 * popK); c.globalAlpha = a;
+            roundRectPath(c, -tw / 2, -13, tw, 26, 13);
+            c.fillStyle = "rgba(10,14,26,0.90)"; c.fill();
+            c.lineWidth = 1.5; c.strokeStyle = who === "you" ? "#F4C275" : "#FB7185"; c.stroke();
+            const tx = clamp(geo.cx - bxC, -tw / 2 + 12, tw / 2 - 12);
+            c.beginPath(); c.moveTo(tx - 5, -12); c.lineTo(tx + 5, -12); c.lineTo(tx, -19); c.closePath();
+            c.fillStyle = "rgba(10,14,26,0.90)"; c.fill();
+            c.fillStyle = "#FFF"; c.textAlign = "center"; c.textBaseline = "middle";
+            c.fillText(fitRun(c, b.text, tw - 16, "700", 12.5, "Arial"), 0, 1);
+            c.restore();
+          }
+        }
         function drawPop(c, now) {
           if (!pop) return;
           if (now - pop.last > 3400) { pop = null; return; }
@@ -10484,14 +10975,15 @@ const okHP = await shareInviteText(text);
             const gx = parseFloat(dragState.ghost ? dragState.ghost.style.left : "0") - gs.left;
             const gy = parseFloat(dragState.ghost ? dragState.ghost.style.top : "0") - gs.top;
             const s = 54;
+            const sprKey = tile.gold ? "gold" : (tile.wild ? "pink" : "blue");
             c.save();
             c.fillStyle = "rgba(0,0,0,0.4)";
             c.beginPath(); c.ellipse(gx, gy + s * 0.42, s * 0.4, 5, 0, 0, 6.283); c.fill();
-            c.fillStyle = shade(TILE_BASE.blue, 0.45);
+            c.fillStyle = shade(TILE_BASE[sprKey], 0.45);
             roundRectPath(c, gx - s / 2 + 1, gy - s / 2 + 5, s - 2, s - 2, 13); c.fill();
-            if (SPRITES.blue) c.drawImage(SPRITES.blue.face, gx - s / 2, gy - s / 2, s, s);
+            if (SPRITES[sprKey]) c.drawImage(SPRITES[sprKey].face, gx - s / 2, gy - s / 2, s, s);
             c.font = "900 27px 'Arial Black', Arial"; c.textAlign = "center"; c.textBaseline = "middle";
-            c.fillStyle = "#FFF"; c.fillText(tile.letter, gx, gy + 1);
+            c.fillStyle = "#FFF"; c.fillText(tile.wild ? "?" : tile.letter, gx, gy + 1);
             c.restore();
           } catch (e) {}
         }
@@ -10535,6 +11027,22 @@ const okHP = await shareInviteText(text);
           camVec = { x: (cam.fx - L.board.w / 2) * (cam.s - 1) + cam.tx, y: (cam.fy - L.board.h / 2) * (cam.s - 1) + cam.ty };
           ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
           ctx.fillStyle = "#140B31"; ctx.fillRect(0, 0, L.w, L.h);
+          // A3: ease the heat toward the live combo every frame.
+          const ht = heatTarget();
+          heatCur += (ht - heatCur) * Math.min(1, dt * 0.006);
+          if (Math.abs(ht - heatCur) < 0.004) heatCur = ht;
+          /* A4: the heartbeat scales the whole scene around its
+             centre for ~620 ms (two-beat thump), then lets go. */
+          let hbOn = false;
+          if (heartbeat) {
+            const hbt = (now - heartbeat.t0) / 620;
+            if (hbt >= 1) heartbeat = null;
+            else {
+              const s = 1 + 0.016 * beatK(hbt);
+              ctx.save(); ctx.translate(L.w / 2, L.h / 2); ctx.scale(s, s); ctx.translate(-L.w / 2, -L.h / 2);
+              hbOn = true;
+            }
+          }
           const t0 = performance.now();
           drawBG(ctx, now);
           const t1 = performance.now();
@@ -10542,14 +11050,17 @@ const okHP = await shareInviteText(text);
           const t2 = performance.now();
           compositeCached(ctx, cam);
           const t3 = performance.now();
+          drawHeat(ctx, now);
           drawRack(ctx, now);
           drawPop(ctx, now);
           drawRibbon(ctx, now);
           drawHUD(ctx, now, dt);
           const t4 = performance.now();
           drawParticles(ctx, now, dt);
+          drawBubbles(ctx, now);
           drawSpecks(ctx, now);
           drawDrag(ctx);
+          if (hbOn) ctx.restore();
           PROF.bg += t1 - t0; PROF.board += t2 - t1; PROF.comp += t3 - t2; PROF.hud += t4 - t3; PROF.fx += performance.now() - t4; PROF.n++;
         }
         /* Quiet-state detection: at rest the only motion is the idle
@@ -10562,6 +11073,13 @@ const okHP = await shareInviteText(text);
         let lastRenderAt = 0, lastTimerTxt = "", lastTimerFrac = -1;
         function sceneQuiet(now) {
           if (camAnim || ribbon || pop || particles.length || tags.length) return false;
+          if (sweep || pendingCeleb || heartbeat || BUB.you || BUB.cpu) return false;
+          if (comboSayQ.you || comboSayQ.cpu) return false;
+          if (heatCur > 0.02) return false;
+          for (const who of ["you", "cpu"]) {
+            const A = AV[who];
+            if ((A.leanUntil && now < A.leanUntil) || (A.deflateUntil && now < A.deflateUntil)) return false;
+          }
           if (boardDirty || now < boardAnimUntil) return false;
           if (typeof G !== "undefined" && G) {
             if (Math.round(dispScore[0]) !== (G.scores[0] || 0) || Math.round(dispScore[1]) !== (G.scores[1] || 0)) return false;
@@ -10581,6 +11099,28 @@ const okHP = await shareInviteText(text);
           const dt = Math.min(50, lastT ? now - lastT : 16); lastT = now;
           avTick(now);
           frameDiff(now);
+          /* A1: the sweep finished — fire the celebration (flash,
+             ribbon, confetti, camera slam) it was holding back. */
+          if (pendingCeleb && now >= pendingCeleb.at) {
+            const pc = pendingCeleb; pendingCeleb = null; sweep = null;
+            fireCelebration(pc.wi, pc.by, pc.cells);
+          }
+          /* Combo-bubble fix: speak a queued combo line once its
+             side's bubble slot has freed (an entry that still cannot
+             speak ~1.8 s after its slot is dropped, never spoken
+             late), then mirror the live Rush combo — this mirror is
+             what the juice wrapper's increase check reads. */
+          for (const who of ["you", "cpu"]) {
+            const q = comboSayQ[who];
+            if (!q) continue;
+            const cur = BUB[who];
+            if (now >= q.at && (!cur || now - cur.t0 >= cur.dur)) { comboSayQ[who] = null; say(who, q.cat, 1500, 1); }
+            else if (now > q.at + 1800) comboSayQ[who] = null;
+          }
+          if (typeof G !== "undefined" && G && G.rush && G.rush.combo) {
+            prevCombo[0] = G.rush.combo[0] || 1;
+            prevCombo[1] = G.rush.combo[1] || 1;
+          }
           frameNo++;
           if (!measureDirty && L) {
             const gs0 = gsEl();
@@ -10629,6 +11169,12 @@ const okHP = await shareInviteText(text);
             makeSprite("gold", IMG.tileGold, TILE_BASE.gold);
             boardCv = document.createElement("canvas"); bx = boardCv.getContext("2d");
             wrapJuice();
+            /* A5: the win cinematic never traps the player — any tap
+               during the cinematic window drops the camera back to
+               the rest pose immediately. */
+            document.addEventListener("pointerdown", () => {
+              if (performance.now() < cineUntil) { camAnim = null; camPrio = 0; finalSlam = false; cineUntil = 0; }
+            }, { passive: true });
             window.addEventListener("resize", () => { measureDirty = true; sizeCanvas(); });
             rafId = requestAnimationFrame(loop);
           });
@@ -10636,12 +11182,603 @@ const okHP = await shareInviteText(text);
         try { init(); } catch (e) {}
         return { get active() { return active; }, fps: () => fpsVal, videoOK: () => videoLive(), version: "scene-3",
           debug: () => ({ ribbon: !!ribbon, ribbonText: ribbon ? ribbon.text : "", pop: !!pop,
+            fx: { sweep: !!sweep, pending: !!pendingCeleb, bubYou: BUB.you ? BUB.you.text : "", bubCpu: BUB.cpu ? BUB.cpu.text : "",
+              heat: +heatCur.toFixed(2), hb: !!heartbeat, camAnim: !!camAnim, camDur: camAnim ? Math.round(camAnim.dur) : 0 },
             camS: camPose ? Math.round(camPose.s * 100) / 100 : 1, camRx: camPose ? Math.round(camPose.rx * 10) / 10 : 0,
             avYou: AV.you.cur, avCpu: AV.cpu.cur, particles: particles.length, dpr: DPR,
             avBox: (() => { try { if (!L) return null; const mk = (g) => g ? { cx: +g.cx.toFixed(1), cy: +g.cy.toFixed(1), ext: +g.EXT.toFixed(1), left: +(g.cx - g.EXT).toFixed(1), right: +(g.cx + g.EXT).toFixed(1), top: +(g.cy - g.EXT).toFixed(1), bottom: +(g.cy + g.EXT).toFixed(1) } : null; return { you: mk(avGeom("you")), cpu: mk(avGeom("cpu")), Lw: L.w, Lh: L.h }; } catch (e) { return null; } })(),
             prof: PROF.n ? { bg: +(PROF.bg / PROF.n).toFixed(1), board: +(PROF.board / PROF.n).toFixed(1), comp: +(PROF.comp / PROF.n).toFixed(1), hud: +(PROF.hud / PROF.n).toFixed(1), fx: +(PROF.fx / PROF.n).toFixed(1), n: PROF.n } : null }) };
       })();
     </script>
+
+<script>
+/* ================================================================
+   SWISH ARCADE — FEATURES Phase B (gameplay layer)
+   B1 Daily Race + streak · B2 golden / wild tiles ·
+   B3 shareable result card · B4 Rush ladder.
+   This block extends the base game from outside its own script:
+   base function bindings are wrapped (never edited), save fields
+   are additive (existing saves keep working), and every wrapper
+   fails open to the base behavior on any error.
+   PvP / Split Screen / Rush-race games are never touched: the
+   shared-seed streams stay exactly as shipped (see B2 note).
+   ================================================================ */
+(() => {
+  "use strict";
+  const $ = (s, r) => (r || document).querySelector(s);
+
+  /* FXSIM-BEGIN — pure helpers (extracted and proven by fx-tiles-sim.js) */
+  const FX_TILE_RATE = 1 / 30;   // ~1 in 30 draws each: golden, wild
+  function fxMarkTiles(tiles, canMark, rand) {
+    if (!canMark) return tiles;
+    for (const t of tiles) {
+      const r = rand();
+      if (r < FX_TILE_RATE) t.gold = true;
+      else if (r < FX_TILE_RATE * 2) t.wild = true;
+    }
+    return tiles;
+  }
+  function fxGoldenExtra(wordLen, rushMult) { return wordLen * (rushMult || 1); }
+  function fxStreakNext(curStreak, lastDate, key, ydayKey) {
+    if (lastDate === key) return curStreak;              // already counted today
+    return lastDate === ydayKey ? (curStreak || 0) + 1 : 1;
+  }
+  function fxKnobs(step) {
+    return {
+      paceF: Math.max(0.6, 1 - 0.07 * step),
+      solveB: Math.min(0.25, 0.04 * step),
+      mistF: Math.max(0.35, 1 - 0.16 * step),
+    };
+  }
+  /* FXSIM-END */
+
+  /* ---------------- additive save fields ---------------- */
+  function fxStore() {
+    const S = STORE;
+    if (typeof S.fxRaceDate !== "string") S.fxRaceDate = "";
+    if (typeof S.fxRaceStreak !== "number") S.fxRaceStreak = 0;
+    if (typeof S.fxRaceBest !== "number") S.fxRaceBest = 0;
+    if (typeof S.fxTrophies !== "number") S.fxTrophies = 0;
+    if (!S.fxLadderMatch || typeof S.fxLadderMatch !== "object") S.fxLadderMatch = { you: 0, cpu: 0 };
+    if (typeof S.fxLadderMatch.you !== "number") S.fxLadderMatch.you = 0;
+    if (typeof S.fxLadderMatch.cpu !== "number") S.fxLadderMatch.cpu = 0;
+    return S;
+  }
+  function fxSave() { try { saveStore(); } catch (e) {} }
+
+  /* ---------------- B4: ladder knobs ----------------
+     Scaling (step = min(6, floor(trophies / 3)) — a step up every
+     3 trophies):
+       CPU placement interval (RUSH_CPU_PACE, ms): x paceF,
+         1.00 -> 0.65 across steps 0..6 (never below 0.60).
+       CPU solve chance (DIFFICULTIES.solveChance): + solveB,
+         +0.00 -> +0.24 (capped at 0.97 absolute).
+       CPU mistake chance (DIFFICULTIES.mistakeChance): x mistF,
+         1.00 -> 0.35 across steps 0..6.
+     Step 0 applies the captured base values unchanged — identical
+     to today's CPU. Knobs are restored at every game start and
+     re-applied only for ladder races. */
+  const BASE_KNOBS = { pace: {}, diff: {} };
+  try {
+    for (const k in RUSH_CPU_PACE) BASE_KNOBS.pace[k] = RUSH_CPU_PACE[k];
+    for (const k in DIFFICULTIES) BASE_KNOBS.diff[k] = { solveChance: DIFFICULTIES[k].solveChance, mistakeChance: DIFFICULTIES[k].mistakeChance };
+  } catch (e) {}
+  const LADDER_TIERS = ["Rookie", "Bronze", "Silver", "Gold", "Platinum", "Diamond", "Champion"];
+  function ladderStep() { return Math.min(6, Math.floor(fxStore().fxTrophies / 3)); }
+  function ladderTier(step) { return LADDER_TIERS[step] || "Champion"; }
+  function applyKnobs(step) {
+    const kn = fxKnobs(step);
+    for (const k in BASE_KNOBS.pace) RUSH_CPU_PACE[k] = Math.round(BASE_KNOBS.pace[k] * kn.paceF);
+    for (const k in BASE_KNOBS.diff) {
+      DIFFICULTIES[k].solveChance = Math.min(0.97, BASE_KNOBS.diff[k].solveChance + kn.solveB);
+      DIFFICULTIES[k].mistakeChance = BASE_KNOBS.diff[k].mistakeChance * kn.mistF;
+    }
+  }
+  function restoreKnobs() {
+    for (const k in BASE_KNOBS.pace) RUSH_CPU_PACE[k] = BASE_KNOBS.pace[k];
+    for (const k in BASE_KNOBS.diff) {
+      DIFFICULTIES[k].solveChance = BASE_KNOBS.diff[k].solveChance;
+      DIFFICULTIES[k].mistakeChance = BASE_KNOBS.diff[k].mistakeChance;
+    }
+  }
+
+  /* ---------------- shared feature state ---------------- */
+  let fxPendingDailyRace = false;
+  let fxPendingLadder = false;
+  let fxSuppressTiles = 0;      // >0 while the CPU draws (rushStart / rushCpuMove)
+  let fxGoldIntent = null;      // {cell, tileId} set by the human placement wrappers
+  const goldCellsLive = new Set();    // golden cells on the board, not yet scored
+  const goldCellsVisual = new Set();  // golden cells on the board (scene reads this)
+  const goldWordBonus = new Map();    // wi -> extra points credited at completion
+  const goldWordCells = new Map();    // wi -> golden cells that fed that bonus
+  window.ArcadeFxGold = { has: (i) => goldCellsVisual.has(i) };
+
+  function fxClearGold() {
+    goldCellsLive.clear(); goldCellsVisual.clear();
+    goldWordBonus.clear(); goldWordCells.clear(); fxGoldIntent = null;
+  }
+
+  /* ---------------- game-start wrapper: B1 puzzle + B4 knobs ---------------- */
+  const _newGame = newGame;
+  newGame = function (puzzle, diffKey, mode) {
+    restoreKnobs();
+    fxClearGold();
+    const ladder = fxPendingLadder && mode === "rush";
+    if (ladder) { fxPendingLadder = false; applyKnobs(ladderStep()); }
+    if (fxPendingDailyRace && mode === "rush") {
+      fxPendingDailyRace = false;
+      const key = etDayKey();
+      const dp = generateDailyPuzzle(key);
+      const out = withSeededRandom(hashSeed("swish-daily-race-" + key), () => _newGame(dp, diffKey, mode));
+      try {
+        G.dailyRace = true; G.dailyRaceKey = key;
+        G.puzzle.title = "Daily Race";
+        if (ladder) G.fxLadder = true;
+      } catch (e) {}
+      return out;
+    }
+    const out = _newGame(puzzle, diffKey, mode);
+    if (ladder) { try { G.fxLadder = true; } catch (e) {} }
+    return out;
+  };
+
+  /* ---------------- finish wrapper: B1 streak + B4 match ---------------- */
+  const _recordGameFinished = recordGameFinished;
+  recordGameFinished = function () {
+    const g = (typeof G !== "undefined") ? G : null;
+    const race = !!(g && g.dailyRace && !g.__fxRaceCounted);
+    const lad = !!(g && g.fxLadder && !g.__fxLadderCounted);
+    _recordGameFinished();
+    try {
+      if (!g) return;
+      if (race) {
+        g.__fxRaceCounted = true;
+        if (!g.forfeited) {
+          const S = fxStore();
+          const key = g.dailyRaceKey || etDayKey();
+          S.fxRaceStreak = fxStreakNext(S.fxRaceStreak, S.fxRaceDate, key, shiftDayKey(key, -1));
+          S.fxRaceDate = key;
+          if (S.fxRaceStreak > S.fxRaceBest) S.fxRaceBest = S.fxRaceStreak;
+          fxSave();
+          showToast("Daily Race complete — streak: " + S.fxRaceStreak);
+        }
+      }
+      if (lad) {
+        g.__fxLadderCounted = true;
+        ladderRaceDone(g);
+      }
+      refreshFxMenu();
+    } catch (e) {}
+  };
+  function ladderRaceDone(g) {
+    const S = fxStore();
+    const m = S.fxLadderMatch;
+    const winner = g.forfeited ? 1 : g.winner;
+    if (winner === 0) m.you += 1;
+    else if (winner === 1) m.cpu += 1;
+    else { fxSave(); return; }  // a draw moves nobody
+    if (m.you >= 2 || m.cpu >= 2) {
+      if (m.you >= 2) {
+        S.fxTrophies += 1;
+        showToast("Ladder match won! Trophies: " + S.fxTrophies + " · Tier: " + ladderTier(ladderStep()));
+      } else {
+        showToast("Ladder match lost — the CPU takes it. Trophies: " + S.fxTrophies);
+      }
+      S.fxLadderMatch = { you: 0, cpu: 0 };
+    } else {
+      showToast("Race " + (winner === 0 ? "won" : "lost") + " — match: You " + m.you + " – " + m.cpu + " CPU (first to 2)");
+    }
+    fxSave();
+  }
+
+  /* ---------------- B2: golden / wild tiles ----------------
+     SOLO contexts only (normal vs CPU, solo Rush, Daily Race):
+     never in Split Screen or Rush PvP — those keep the exact
+     shipped shared-seed streams, so neither racer can be given an
+     advantage (the fairness requirement is met by exclusion).
+     Marking never changes a tile's letter, so the base game's
+     dead-rack guarantee (which reasons about letters) is untouched;
+     a wild tile keeps a real needed letter as its face until the
+     player picks the letter it becomes at placement time. */
+  function tilesMarkable() {
+    if (typeof G === "undefined" || !G || G.gameOver) return false;
+    if (G.live || G.rushPvp) return false;
+    if (fxSuppressTiles > 0) return false;
+    if (G.mode === "rush") return true;               // local player's rack draws/refills
+    if (G.mode === "solo") return G.current === 0;    // human's turn-based rack only
+    return false;
+  }
+  function wildHomeLetter() {
+    try {
+      const needs = openLetterNeeds();
+      if (needs && needs.list && needs.list.length) return needs.list[0];
+    } catch (e) {}
+    return "E";
+  }
+  const _drawTiles = drawTiles;
+  function fxDrawTiles(n) {
+    const tiles = _drawTiles(n);
+    try {
+      if (tilesMarkable()) {
+        fxMarkTiles(tiles, true, Math.random);
+        for (const t of tiles) if (t.wild && !t.gold) t.letter = wildHomeLetter();
+      }
+    } catch (e) {}
+    return tiles;
+  }
+  Object.defineProperty(fxDrawTiles, "seq", {
+    get: () => _drawTiles.seq,
+    set: (v) => { _drawTiles.seq = v; },
+  });
+  drawTiles = fxDrawTiles;
+
+  const _rushStart = rushStart;
+  rushStart = function () { fxSuppressTiles++; try { return _rushStart(); } finally { fxSuppressTiles--; } };
+  const _rushCpuMove = rushCpuMove;
+  rushCpuMove = function () { fxSuppressTiles++; try { return _rushCpuMove(); } finally { fxSuppressTiles--; } };
+
+  /* Golden scoring: a golden tile that lands keeps its cell in
+     goldCellsLive; when a word containing such a cell completes,
+     the completing side is credited the word's length again
+     (x the live Rush combo multiplier, exactly like the base word
+     bonus) — i.e. the golden tile's word scores double. */
+  const _lockLetter = lockLetter;
+  lockLetter = function (cell, countsTowardBonus) {
+    const g = (typeof G !== "undefined") ? G : null;
+    if (!g) return _lockLetter(cell, countsTowardBonus);
+    const beforeWords = new Set(g.completedWords);
+    const by = g.current;
+    const out = _lockLetter(cell, countsTowardBonus);
+    try {
+      if (fxGoldIntent && fxGoldIntent.cell === cell) {
+        const t = g.rack.find((x) => x.id === fxGoldIntent.tileId);
+        if (t && t.used && t.gold) { goldCellsLive.add(cell); goldCellsVisual.add(cell); }
+        fxGoldIntent = null;
+      }
+      g.completedWords.forEach((wi) => {
+        if (beforeWords.has(wi)) return;
+        const cells = g.wordCells[wi] || [];
+        const golds = cells.filter((ci) => goldCellsLive.has(ci));
+        if (!golds.length) return;
+        const mult = (g.mode === "rush" && g.rush) ? (g.rush.combo[by] || 1) : 1;
+        const extra = fxGoldenExtra((g.puzzle.words[wi].a || "").length, mult);
+        g.scores[by] += extra;
+        g.turnPoints += extra;
+        goldWordBonus.set(wi, extra);
+        goldWordCells.set(wi, golds.slice());
+        golds.forEach((ci) => goldCellsLive.delete(ci));
+        showToast("Golden word! +" + extra + " bonus");
+        try { SFX.word((g.puzzle.words[wi].a || "").length); } catch (e) {}
+      });
+    } catch (e) {}
+    return out;
+  };
+
+  const _undoLast = undoLast;
+  undoLast = function () {
+    const g = (typeof G !== "undefined") ? G : null;
+    const mv = g && g.turnMoves && g.turnMoves.length ? g.turnMoves[g.turnMoves.length - 1] : null;
+    const cell = mv ? mv.cell : null;
+    const out = _undoLast();
+    try {
+      if (!g || cell === null || cell === undefined) return out;
+      goldCellsLive.delete(cell);
+      goldCellsVisual.delete(cell);
+      for (const wi of (g.cellWords[cell] || [])) {
+        if (goldWordBonus.has(wi) && !g.completedWords.has(wi)) {
+          const extra = goldWordBonus.get(wi);
+          g.scores[g.current] = Math.max(0, (g.scores[g.current] || 0) - extra);
+          g.turnPoints = Math.max(0, (g.turnPoints || 0) - extra);
+          (goldWordCells.get(wi) || []).forEach((ci) => { if (ci !== cell) goldCellsLive.add(ci); });
+          goldWordBonus.delete(wi);
+          goldWordCells.delete(wi);
+        }
+      }
+    } catch (e) {}
+    return out;
+  };
+
+  /* Placement wrappers: a wild tile asks for its letter first
+     (picker overlay); a golden tile registers its intent so the
+     lockLetter wrapper can track the cell it lands on. */
+  const _attemptPlace = attemptPlace;
+  attemptPlace = function (tileId, cell) {
+    try {
+      if (typeof G !== "undefined" && G && !G.gameOver && G.current === 0 && !G.live) {
+        const t = G.rack.find((x) => x.id === tileId);
+        if (t && !t.used) {
+          if (t.wild) { openLetterPicker(t, cell, "turn"); return; }
+          fxGoldIntent = t.gold ? { cell, tileId } : null;
+        }
+      }
+    } catch (e) {}
+    return _attemptPlace(tileId, cell);
+  };
+  const _rushAttemptPlace = rushAttemptPlace;
+  rushAttemptPlace = function (tileId, cell) {
+    try {
+      if (typeof G !== "undefined" && G && G.rush && !G.rushPvp && !G.gameOver) {
+        const t = G.rack.find((x) => x.id === tileId);
+        if (t && !t.used) {
+          if (t.wild) { openLetterPicker(t, cell, "rush"); return; }
+          fxGoldIntent = t.gold ? { cell, tileId } : null;
+        }
+      }
+    } catch (e) {}
+    return _rushAttemptPlace(tileId, cell);
+  };
+
+  /* Wild letter picker — a small overlay in the game's own modal
+     style. In Rush the race clock pauses while it is open (the
+     base's own paused flag), so picking a letter costs no time. */
+  let pickerState = null;
+  function buildPicker() {
+    if ($("#fxPicker")) return;
+    const bd = document.createElement("div");
+    bd.className = "modal-backdrop"; bd.id = "fxPicker"; bd.hidden = true;
+    bd.innerHTML = '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="fxPickerTitle">' +
+      '<h3 id="fxPickerTitle" style="margin:0 0 6px">Wild tile</h3>' +
+      '<p style="margin:0 0 12px;opacity:.85">Pick the letter this tile becomes:</p>' +
+      '<div id="fxPickerGrid" style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px"></div>' +
+      '<button type="button" class="btn-ghost" id="fxPickerCancel" style="margin-top:14px;width:100%">Cancel</button></div>';
+    document.body.appendChild(bd);
+    const grid = $("#fxPickerGrid");
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").forEach((ch) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.textContent = ch;
+      b.style.cssText = "font:900 17px Arial;padding:10px 0;border-radius:10px;border:1px solid rgba(255,255,255,.28);background:rgba(255,255,255,.12);color:#fff;cursor:pointer";
+      b.addEventListener("click", () => pickLetter(ch));
+      grid.appendChild(b);
+    });
+    $("#fxPickerCancel").addEventListener("click", closePicker);
+    bd.addEventListener("click", (e) => { if (e.target === bd) closePicker(); });
+  }
+  function openLetterPicker(tile, cell, kind) {
+    buildPicker();
+    pickerState = { tileId: tile.id, cell, kind };
+    if (kind === "rush" && typeof G !== "undefined" && G && G.rush) G.rush.paused = true;
+    $("#fxPicker").hidden = false;
+  }
+  function closePicker() {
+    const bd = $("#fxPicker"); if (bd) bd.hidden = true;
+    if (pickerState && pickerState.kind === "rush" && typeof G !== "undefined" && G && G.rush && !G.gameOver) G.rush.paused = false;
+    pickerState = null;
+  }
+  function pickLetter(ch) {
+    const st = pickerState;
+    closePicker();
+    if (!st || typeof G === "undefined" || !G) return;
+    const t = G.rack.find((x) => x.id === st.tileId);
+    if (!t || t.used) return;
+    t.letter = ch;
+    if (st.kind === "rush") _rushAttemptPlace(t.id, st.cell);
+    else _attemptPlace(t.id, st.cell);
+  }
+
+  /* ---------------- B3: shareable result card ----------------
+     Replaces the game-over Share button's handler (the button node
+     is cloned, which drops the base listeners) with a scene-styled
+     card: both avatar faces, the winner line, the final score and
+     ARCADE branding, shared through the game's existing share path
+     (native bridge -> navigator.share -> clipboard -> download). */
+  const fxImgYou = new Image(); fxImgYou.src = "data:image/webp;base64,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";
+  const fxImgCpu = new Image(); fxImgCpu.src = "data:image/webp;base64,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";
+  function rr(c, x, y, w, h, r) {
+    c.beginPath();
+    c.moveTo(x + r, y);
+    c.arcTo(x + w, y, x + w, y + h, r);
+    c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r);
+    c.arcTo(x, y, x + w, y, r);
+    c.closePath();
+  }
+  function drawFace(c, img, cx, cy, R, ring, dim) {
+    c.save();
+    c.beginPath(); c.arc(cx, cy, R + 5, 0, 6.283);
+    c.fillStyle = "rgba(0,0,0,0.30)"; c.fill();
+    c.beginPath(); c.arc(cx, cy, R, 0, 6.283); c.clip();
+    if (img && img.complete && img.naturalWidth) {
+      if (dim) c.globalAlpha = 0.72;
+      const sw = img.naturalWidth, sh = img.naturalHeight, cs = Math.min(sw, sh);
+      c.drawImage(img, (sw - cs) / 2, (sh - cs) * 0.30, cs, cs, cx - R, cy - R, 2 * R, 2 * R);
+    } else {
+      c.fillStyle = ring; c.fillRect(cx - R, cy - R, 2 * R, 2 * R);
+    }
+    c.restore();
+    c.beginPath(); c.arc(cx, cy, R, 0, 6.283);
+    c.lineWidth = 6; c.strokeStyle = ring; c.stroke();
+  }
+  function fxRenderCard() {
+    return new Promise((resolve) => {
+      const finish = () => {
+        try { resolve(buildCard()); } catch (e) { resolve(null); }
+      };
+      const pending = [fxImgYou, fxImgCpu].filter((im) => !(im.complete && im.naturalWidth));
+      if (!pending.length) { finish(); return; }
+      let left = pending.length;
+      const step = () => { if (--left <= 0) finish(); };
+      pending.forEach((im) => { im.onload = step; im.onerror = step; });
+      setTimeout(finish, 1200);  // never trap the share on an image
+    });
+  }
+  function buildCard() {
+    if (typeof G === "undefined" || !G) return null;
+    const W = 1200, H = 630;
+    const canvas = document.createElement("canvas");
+    canvas.width = W; canvas.height = H;
+    const c = canvas.getContext("2d");
+    if (!c) return null;
+    const bg = c.createLinearGradient(0, 0, W, H);
+    bg.addColorStop(0, "#140B31"); bg.addColorStop(0.55, "#232A6B"); bg.addColorStop(1, "#3C1E78");
+    c.fillStyle = bg; c.fillRect(0, 0, W, H);
+    rr(c, 10, 10, W - 20, H - 20, 26); c.lineWidth = 5; c.strokeStyle = "#F4C275"; c.stroke();
+    c.textAlign = "left"; c.textBaseline = "alphabetic";
+    c.fillStyle = "#FFFFFF";
+    c.font = "900 80px 'Arial Black', Arial, sans-serif";
+    c.fillText("S.W.I.S.H", 56, 116);
+    c.fillStyle = "#FFD60A";
+    c.font = "700 29px Arial, sans-serif";
+    c.fillText("CROSSWORD BATTLE · ARCADE", 58, 158);
+    const SR = window.SwishShareResult || null;
+    const modeRaw = SR && SR._modeLabel ? SR._modeLabel() : "";
+    const mode = modeRaw ? modeRaw.charAt(0).toUpperCase() + modeRaw.slice(1) : "";
+    const line = SR && SR._resultLine ? SR._resultLine() : "";
+    c.fillStyle = "rgba(255,255,255,0.85)";
+    c.font = "600 34px Arial, sans-serif";
+    if (mode) c.fillText(mode, 58, 214);
+    let size = 54;
+    c.fillStyle = "#FFFFFF";
+    do { c.font = "800 " + size + "px Arial, sans-serif"; size -= 3; } while (line && c.measureText(line).width > W - 116 && size > 26);
+    if (line) c.fillText(line, 58, 282);
+    // faces + score
+    const w = G.winner;
+    drawFace(c, fxImgYou, 240, 428, 104, "#F4C275", w === 1);
+    drawFace(c, fxImgCpu, 960, 428, 104, "#FB7185", w === 0);
+    c.textAlign = "center";
+    c.fillStyle = "#FFFFFF";
+    c.font = "900 92px 'Arial Black', Arial, sans-serif";
+    c.fillText((G.scores[0] || 0) + " – " + (G.scores[1] || 0), 600, 448);
+    c.fillStyle = "rgba(255,255,255,0.75)";
+    c.font = "800 30px Arial, sans-serif";
+    c.fillText("VS", 600, 356);
+    if (w === 0 || w === 1) {
+      c.fillStyle = "#FFD60A";
+      c.font = "900 28px 'Arial Black', Arial, sans-serif";
+      c.fillText("WINNER", w === 0 ? 240 : 960, 566);
+    }
+    c.textAlign = "left";
+    c.fillStyle = "rgba(255,255,255,0.9)";
+    c.font = "600 28px Arial, sans-serif";
+    let stats = "Words " + (G.wordsCompleted[0] || 0) + "–" + (G.wordsCompleted[1] || 0) +
+      "  ·  Letters " + (G.lettersPlaced[0] || 0) + "–" + (G.lettersPlaced[1] || 0);
+    const S = fxStore();
+    if (G.dailyRace && S.fxRaceStreak) stats += "  ·  Daily Race streak: " + S.fxRaceStreak;
+    if (G.fxLadder) stats += "  ·  Ladder trophies: " + S.fxTrophies;
+    c.fillText(stats, 58, H - 24);
+    return canvas.toDataURL("image/png");
+  }
+  async function fxShare() {
+    if (typeof G === "undefined" || !G || !G.gameOver) { showToast("Finish a game first!"); return; }
+    const SR = window.SwishShareResult || null;
+    const text = SR && SR.buildText ? SR.buildText() : "S.W.I.S.H - Crossword Battle ARCADE";
+    const url = await fxRenderCard();
+    const handler = (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.share) || null;
+    if (handler && url) {
+      try { handler.postMessage({ action: "shareBoard", image: url }); return; } catch (e) {}
+    }
+    if (navigator.share) {
+      try { await navigator.share({ title: "S.W.I.S.H - Crossword Battle ARCADE", text }); return; }
+      catch (e) { if (e && e.name === "AbortError") return; }
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      try { await navigator.clipboard.writeText(text); showToast("Result copied — paste it anywhere to share!"); return; } catch (e) {}
+    }
+    if (url) {
+      const a = document.createElement("a");
+      a.href = url; a.download = "swish-result.png";
+      document.body.appendChild(a); a.click(); a.remove();
+      return;
+    }
+    showToast("Sharing is available in the S.W.I.S.H - Crossword Battle ARCADE app");
+  }
+  function wireShareButton() {
+    const sb = $("#shareResultBtn");
+    if (!sb || sb.__fxWired) return;
+    const nb = sb.cloneNode(true);
+    nb.__fxWired = true;
+    sb.replaceWith(nb);
+    nb.addEventListener("click", () => { fxShare(); });
+  }
+
+  /* ---------------- menu entries: B1 + B4 ---------------- */
+  function startDailyRace() {
+    if (currentMode !== "rush") setMode("rush");
+    fxPendingDailyRace = true;
+    if (fxStore().fxRaceDate === etDayKey()) showToast("Daily Race already done — this run is just for fun.");
+    startGame({ freeBoard: true });
+  }
+  function startLadderRace() {
+    if (currentMode !== "rush") setMode("rush");
+    fxPendingLadder = true;
+    startGame({ freeBoard: true });
+  }
+  function raceStreakShown() {
+    const S = fxStore();
+    const today = etDayKey();
+    if (S.fxRaceDate === today || S.fxRaceDate === shiftDayKey(today, -1)) return S.fxRaceStreak || 0;
+    return 0;
+  }
+  function buildFxMenu() {
+    const dailyBtn = $("#dailyBtn");
+    if (dailyBtn && !$("#fxDailyRaceBtn")) {
+      const info = document.createElement("p");
+      info.id = "fxRaceInfo"; info.className = "daily-streak"; info.style.marginTop = "10px";
+      const btn = document.createElement("button");
+      btn.type = "button"; btn.className = "big-action"; btn.id = "fxDailyRaceBtn";
+      btn.textContent = "Play Daily Race";
+      btn.style.cssText = "margin-top:8px;background:linear-gradient(180deg,#7C3AED,#4C1D95);color:#fff";
+      btn.addEventListener("click", startDailyRace);
+      dailyBtn.insertAdjacentElement("afterend", btn);
+      btn.insertAdjacentElement("beforebegin", info);
+    }
+    const rushBtn = document.querySelector('.mode-btn[data-mode="rush"]');
+    if (rushBtn && !$("#fxLadderBtn")) {
+      const wrap = document.createElement("div");
+      wrap.id = "fxLadderWrap"; wrap.style.cssText = "margin-top:10px;text-align:center";
+      const info = document.createElement("p");
+      info.id = "fxLadderInfo"; info.className = "daily-streak";
+      const btn = document.createElement("button");
+      btn.type = "button"; btn.className = "big-action"; btn.id = "fxLadderBtn";
+      btn.textContent = "Start Ladder Match";
+      btn.style.cssText = "background:linear-gradient(180deg,#B45309,#92400E);color:#fff";
+      btn.addEventListener("click", startLadderRace);
+      wrap.appendChild(info); wrap.appendChild(btn);
+      const anchor = rushBtn.closest(".mode-grid") || rushBtn.parentElement;
+      anchor.insertAdjacentElement("afterend", wrap);
+    }
+    refreshFxMenu();
+  }
+  function refreshFxMenu() {
+    try {
+      const S = fxStore();
+      const info = $("#fxRaceInfo"), btn = $("#fxDailyRaceBtn");
+      if (info) {
+        const done = S.fxRaceDate === etDayKey();
+        info.textContent = "Daily Race streak: " + raceStreakShown() + (done ? " · Today's race complete" : "");
+      }
+      if (btn) btn.textContent = (S.fxRaceDate === etDayKey()) ? "Daily Race — done (replay)" : "Play Daily Race";
+      const li = $("#fxLadderInfo"), lb = $("#fxLadderBtn");
+      const m = S.fxLadderMatch;
+      const inMatch = (m.you + m.cpu) > 0;
+      if (li) li.textContent = "Rush Ladder · Trophies: " + S.fxTrophies + " · Tier: " + ladderTier(ladderStep()) +
+        (inMatch ? " · Match: You " + m.you + " – " + m.cpu + " CPU (first to 2)" : "");
+      if (lb) lb.textContent = inMatch ? "Continue Ladder Match" : "Start Ladder Match";
+    } catch (e) {}
+  }
+
+  /* ---------------- init ---------------- */
+  try { fxStore(); } catch (e) {}
+  buildFxMenu();
+  wireShareButton();
+  setInterval(() => { if ($("#startScreen") && !$("#startScreen").hidden) refreshFxMenu(); }, 4000);
+
+  window.ArcadeFx = {
+    startDailyRace, startLadderRace,
+    debug: () => {
+      const S = fxStore();
+      return {
+        raceStreak: S.fxRaceStreak, raceDate: S.fxRaceDate, raceShown: raceStreakShown(),
+        trophies: S.fxTrophies, ladderStep: ladderStep(), tier: ladderTier(ladderStep()),
+        match: { you: S.fxLadderMatch.you, cpu: S.fxLadderMatch.cpu },
+        knobs: { pace: Object.assign({}, RUSH_CPU_PACE), normal: Object.assign({}, DIFFICULTIES.normal || {}) },
+        goldLive: goldCellsLive.size, goldVisual: goldCellsVisual.size,
+      };
+    },
+    card: () => fxRenderCard(),
+    share: () => fxShare(),
+  };
+})();
+</script>
 
   </body>
 </html>
